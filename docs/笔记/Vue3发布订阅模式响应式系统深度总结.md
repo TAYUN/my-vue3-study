@@ -2,6 +2,7 @@
 
 > **文档目标**：基于当前实际实现进度，总结Vue3中如何使用发布订阅模式实现响应式系统的核心机制。
 
+![20250927144303](https://tangyy-1310903849.cos.ap-guangzhou.myqcloud.com/blog/20250927144303.png)
 ---
 
 ## 📋 当前实现状态
@@ -408,21 +409,6 @@ count = null; // RefImpl.subs仍然持有effect引用
 - 完整的响应式系统
 - 性能优化和内存管理
 - 与组件系统的集成
-
----
-
-## 📚 参考资源
-
-### 项目文档
-- <mcfile name="Vue学习笔记.md" path="d:\myfile\open-project\my-vue3-study\docs\笔记\Vue学习笔记.md"></mcfile> - 理论基础
-- <mcfile name="Vue学习进度.md" path="d:\myfile\open-project\my-vue3-study\docs\笔记\Vue学习进度.md"></mcfile> - 进度跟踪
-
-### 核心代码
-- <mcfile name="effect.ts" path="d:\myfile\open-project\my-vue3-study\packages\reactivity\src\effect.ts"></mcfile> - 6行核心实现
-- <mcfile name="ref.ts" path="d:\myfile\open-project\my-vue3-study\packages\reactivity\src\ref.ts"></mcfile> - 41行完整实现
-- <mcfile name="01-effect.html" path="d:\myfile\open-project\my-vue3-study\packages\reactivity\example\01-effect.html"></mcfile> - 运行示例
-
----
 
 ## 🎯 总结
 
