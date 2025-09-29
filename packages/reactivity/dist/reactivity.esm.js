@@ -1,9 +1,50 @@
 // packages/reactivity/src/effect.ts
 var activeSub;
+var ReactiveEffect = class {
+  constructor(fn) {
+    this.fn = fn;
+  }
+  run() {
+    activeSub = this;
+    try {
+      return this.fn();
+    } finally {
+      activeSub = void 0;
+    }
+  }
+};
 function effect(fn) {
-  activeSub = fn;
-  fn();
-  activeSub = void 0;
+  const e = new ReactiveEffect(fn);
+  e.run();
+}
+
+// packages/reactivity/src/system.ts
+function link(dep, sub) {
+  const newLink = {
+    sub,
+    // 指向目前的订阅者 (activeSub)
+    nextSub: void 0,
+    // 指向下一个节点 (初始化为空)
+    prevSub: void 0
+    // 指向前一个节点 (初始化为空)
+  };
+  if (dep.subsTail) {
+    dep.subsTail.nextSub = newLink;
+    newLink.prevSub = dep.subsTail;
+    dep.subsTail = newLink;
+  } else {
+    dep.subs = newLink;
+    dep.subsTail = newLink;
+  }
+}
+function propagate(subs) {
+  let link2 = subs;
+  let queuedEffect = [];
+  while (link2) {
+    queuedEffect.push(link2.sub);
+    link2 = link2.nextSub;
+  }
+  queuedEffect.forEach((effect2) => effect2.run());
 }
 
 // packages/reactivity/src/ref.ts
@@ -22,32 +63,16 @@ var RefImpl = class {
   // 收集依赖
   get value() {
     if (activeSub) {
-      const newLink = {
-        sub: activeSub,
-        nextSub: void 0,
-        prevSub: void 0
-      };
-      if (this.subsTail) {
-        this.subsTail.nextSub = newLink;
-        newLink.prevSub = this.subsTail;
-        this.subsTail = newLink;
-      } else {
-        this.subs = newLink;
-        this.subsTail = newLink;
-      }
+      trackRef(this);
     }
     return this._value;
   }
   // 触发更新
   set value(newValue) {
     this._value = newValue;
-    let link = this.subs;
-    const queueEffect = [];
-    while (link) {
-      queueEffect.push(link.sub);
-      link = link.nextSub;
+    if (this.subs) {
+      triggerRef(this);
     }
-    queueEffect.forEach((effect2) => effect2());
   }
 };
 function ref(value) {
@@ -56,9 +81,18 @@ function ref(value) {
 function isRef(value) {
   return !!(value && value["__v_isRef" /* IS_REF */]);
 }
+function trackRef(dep) {
+  link(dep, activeSub);
+}
+function triggerRef(dep) {
+  propagate(dep.subs);
+}
 export {
+  ReactiveEffect,
   activeSub,
   effect,
   isRef,
-  ref
+  ref,
+  trackRef,
+  triggerRef
 };
