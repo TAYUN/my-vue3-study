@@ -5,17 +5,35 @@ var ReactiveEffect = class {
     this.fn = fn;
   }
   run() {
+    const prevSub = activeSub;
     activeSub = this;
     try {
       return this.fn();
     } finally {
-      activeSub = void 0;
+      activeSub = prevSub;
     }
   }
+  /*
+   * 如果依赖数据发生变化，由此方法通知更新。
+   */
+  notify() {
+    this.scheduler();
+  }
+  /*
+   * 默认的调度器，直接调用 run 方法。
+   * 如果用户传入了自定义的 scheduler，它会作为实例属性覆盖掉这个原型方法。
+   */
+  scheduler() {
+    this.run();
+  }
 };
-function effect(fn) {
+function effect(fn, options) {
   const e = new ReactiveEffect(fn);
+  Object.assign(e, options);
   e.run();
+  const runner = e.run.bind(e);
+  runner.effect = e;
+  return runner;
 }
 
 // packages/reactivity/src/system.ts
@@ -44,7 +62,7 @@ function propagate(subs) {
     queuedEffect.push(link2.sub);
     link2 = link2.nextSub;
   }
-  queuedEffect.forEach((effect2) => effect2.run());
+  queuedEffect.forEach((effect2) => effect2.notify());
 }
 
 // packages/reactivity/src/ref.ts
