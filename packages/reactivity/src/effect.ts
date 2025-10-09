@@ -4,6 +4,10 @@ import { Link } from './system'
 export let activeSub: ReactiveEffect
 
 export class ReactiveEffect {
+  // 依赖项链表的头节点，指向Link
+  deps: Link
+  // 依赖项链表的尾节点，指向Link
+  depsTail: Link
   constructor(public fn: Function) {}
 
   run() {
@@ -11,6 +15,7 @@ export class ReactiveEffect {
     const prevSub = activeSub
     // 每次执行 fn 之前，把 this 实例放到 activeSub 上
     activeSub = this
+    this.depsTail = undefined
     // 注意用try catch
     try {
       return this.fn()
