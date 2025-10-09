@@ -69,7 +69,7 @@
 2. **没有清理旧依赖**：在`effect`重新执行前，没有清理之前收集的依赖
 3. **链表无限增长**：导致依赖链表在每次更新时都会成倍增长
 
-## 解决方案
+## 解决方案（单一依赖）
 
 要解决这个问题，我们采用了两大步骤：
 
@@ -129,7 +129,7 @@ run() {
 }
 ```
 
-**在system.ts中实现节点复用**：
+**在system.ts中实现节点复用（初始版本）**：
 ```typescript
 export function link(dep, sub) {
   /**
@@ -154,31 +154,378 @@ export function link(dep, sub) {
 }
 ```
 
-## 完整执行流程
+## 多依赖问题与优化
 
-### 第一次执行
-1. effect初始化：deps = undefined, depsTail = undefined
-2. 执行run()：进入run方法，depsTail保持undefined
-3. 读取ref.value，调用link()
-4. link()判断：因为deps是undefined，不满足复用条件 → 创建新的Link1节点
-5. 执行结束：deps指向Link1, depsTail也指向Link1
+### 多依赖场景下的问题
 
-### 第二次执行（点击按钮）
-1. 执行前：deps = Link1, depsTail = Link1
-2. 执行run()：进入run方法，depsTail被设为undefined，进入"重新收集"状态
-3. 读取ref.value，调用link()
-4. link()判断：
-   - 条件满足：depsTail === undefined且deps存在
-   - 开始遍历deps链表，发现deps(即Link1)的.dep属性就是当前的ref
-   - 复用成功！将depsTail重新指向Link1，然后return，不再创建新节点
-5. 执行结束：deps依然是Link1, depsTail也恢复为Link1
+当effect函数依赖多个响应式变量时，我们发现上述解决方案仍然存在问题。例如：
+
+```html
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Title</title>
+    <style>
+      body {
+        padding: 150px;
+      }
+    </style>
+  </head>
+  <body>
+    <button id="btn">按钮</button>
+    <script type="module">
+      import { ref, effect } from '../dist/reactivity.esm.js'
+
+      const flag = ref(true)
+      const count = ref(0)
+
+      effect(() => {
+        flag.value
+        count.value
+        console.count('effect')
+      })
+
+      btn.onclick = () => {
+        count.value++
+      }
+    </script>
+  </body>
+</html>
+```
+
+在这个例子中，effect函数同时依赖flag和count两个响应式变量。当点击按钮触发count更新时，依赖收集再次出现了指数级增长。
+
+### 问题分析
+
+初始版本的link函数存在以下问题：
+
+1. **检查范围过小**：复用逻辑只检查并比对依赖链表的第一个节点(sub.deps)
+2. **状态提前改变**：一旦第一个依赖（例如flag）复用成功，depsTail就被赋值，导致后续依赖（例如count）在检查时跳过了复用检查，直接创建新的Link节点
+
+### 优化解决方案
+
+我们需要将depsTail从一个简单的"尾部标记"升级为"遍历进度指针"，用于标记当前复用检查进行到了链表的哪个位置。
+
+#### 优化后的link函数实现：
+
+```typescript
+export function link(dep, sub) {
+  // 复用节点
+  const currentDep = sub.depsTail
+  // 核心逻辑：根据currentDep是否存在，来决定下一个要检查的节点
+  const nextDep = currentDep === undefined ? sub.deps : currentDep.nextDep
+  // 如果nextDep存在，且nextDep.dep等于我当前要收集的dep
+  if (nextDep && nextDep.dep === dep) {
+    sub.depsTail = nextDep // 移动指针
+    return
+  }
+  
+  // 创建新节点的逻辑...
+}
+```
+
+### 执行流程（多依赖场景）
+
+1. **初始化**：
+   - effect执行，depsTail = undefined
+   - 读取flag.value，调用link()
+   - nextDep = sub.deps（因为depsTail为undefined）
+   - 创建新的Link1节点（因为是首次执行）
+   - depsTail = Link1
+   - 读取count.value，调用link()
+   - nextDep = Link1.nextDep（因为depsTail为Link1）
+   - 创建新的Link2节点（因为Link1.nextDep为undefined）
+   - depsTail = Link2
+
+2. **点击按钮更新count**：
+   - effect重新执行，depsTail被设为undefined
+   - 读取flag.value，调用link()
+   - nextDep = sub.deps（因为depsTail为undefined）
+   - 复用Link1节点（因为Link1.dep === flag）
+   - depsTail = Link1
+   - 读取count.value，调用link()
+   - nextDep = Link1.nextDep = Link2（因为depsTail为Link1）
+   - 复用Link2节点（因为Link2.dep === count）
+   - depsTail = Link2
+
+通过这种方式，我们成功解决了多依赖场景下的指数级增长问题。
+
+## 过期依赖清理问题
+
+在解决了链表节点指数级增长的问题后，我们还需要关注依赖的有效性。Effect的执行路径可能因为条件判断或程序逻辑不同而改变，导致某些依赖在本次执行中已经不再需要。如果这些"过期依赖"没有被清理，会带来以下问题：
+
+1. **内存泄漏**：不需要的链表节点一直被保留
+2. **不必要的更新**：Effect虽然已经不依赖某个ref，但这个ref的变化仍然会触发effect
+3. **性能下降**：随着时间累积，无效链表节点越来越多，增加整体执行成本
+
+### 场景一：条件型依赖
+
+考虑以下代码：
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Document</title>
+    <style>
+      body {
+        padding: 150px;
+      }
+    </style>
+  </head>
+<body>
+  <div id="app"></div>
+  <button id="flagBtn">update flag</button>
+  <button id="nameBtn">update name</button>
+  <button id="ageBtn">update age</button>
+  <script type="module">
+    import { ref, effect } from '../dist/reactivity.esm.js'
+
+    const flag = ref(true)
+    const name = ref('姓名')
+    const age = ref(18)
+
+    effect(() => {
+      console.count('effect')
+
+      if(flag.value){
+        app.innerHTML = name.value
+      } else {
+        app.innerHTML = age.value
+      }
+    })
+
+    flagBtn.onclick = () => {
+      flag.value = !flag.value
+    }
+    nameBtn.onclick = () => {
+      name.value = '姓名' + Math.random()
+    }
+    ageBtn.onclick = () => {
+      age.value++
+    }
+  </script>
+</body>
+</html>
+```
+
+#### 预期行为
+
+- 如果flag是true，点击name按钮会触发更新，点击age按钮不会触发更新
+- 如果flag是false，点击age按钮会触发更新，点击name按钮不会触发更新
+
+#### 实际情况
+
+- 初始化：输出effect: 1，此时flag是true
+- 点击update flag：effect更新，输出effect: 2，此时flag变为false
+- 点击update name：我们期望它没有反应，但effect仍然被更新，输出effect: 3
+
+#### 问题分析
+
+1. 初始化时，effect依赖了flag和name
+2. 点击update flag后，effect重新执行，此时只依赖flag和age
+3. 但name的订阅者链表中仍然保留着对effect的引用
+4. 导致name更新时，仍然会触发effect执行
+
+### 场景二：提前返回 (Early Return)
+
+考虑以下代码：
+
+```javascript
+const flag = ref(true)
+const name = ref('姓名')
+const age = ref(18)
+let count = 0
+
+effect(() => {
+  console.count('effect')
+
+  if(count > 0) return
+  count++
+
+  if(flag.value){
+    app.innerHTML = name.value
+  } else {
+    app.innerHTML = age.value
+  }
+})
+```
+
+#### 预期行为
+
+effect只会触发两次（因为count > 0会返回，之后无论如何点击按钮都不应再触发）
+
+#### 实际情况
+
+即使遇到return，点击name按钮，console.count('effect')仍然一直触发更新
+
+#### 问题分析
+
+1. 初始化时，effect依赖了flag和name
+2. 第一次更新后，count变为1
+3. 之后的更新中，effect函数体内的if(count > 0)会导致提前返回
+4. 但由于没有清理过期依赖，flag和name的变化仍然会触发effect执行
+
+## 分支切换依赖清理的实现方案
+
+为了解决上述过期依赖问题，我们实现了一个完整的依赖清理机制，主要通过以下三个关键函数：
+
+### 1. startTrack 和 endTrack 函数
+
+在effect.ts中，我们在run方法中添加了startTrack和endTrack的调用：
+
+```typescript
+run() {
+  const prevSub = activeSub
+  activeSub = this
+  
+  // 开始追踪依赖，将depsTail设为undefined
+  startTrack(this)
+  
+  try {
+    return this.fn()
+  } finally {
+    // 结束追踪，清理过期依赖
+    endTrack(this)
+    activeSub = prevSub
+  }
+}
+```
+
+### 2. system.ts中的实现
+
+在system.ts中，我们实现了startTrack、endTrack和clearTracking三个核心函数：
+
+```typescript
+// 开始追踪，将depsTail设为undefined，进入"重新收集"状态
+export function startTrack(sub){
+  sub.depsTail = undefined
+}
+
+// 结束追踪，清理过期依赖
+export function endTrack(sub) {
+  const depsTail = sub.depsTail
+
+  /**
+   * 情况一：depsTail存在，并且depsTail的nextDep存在
+   * 表示后续链表节点应该移除（这些节点在本次执行中没有被访问到）
+   */
+  if (depsTail) {
+    if (depsTail.nextDep) {
+      clearTracking(depsTail.nextDep)
+      depsTail.nextDep = undefined
+    }
+  // 情况二：depsTail不存在，但旧的deps头节点存在
+  // 清除所有节点（本次执行中没有访问任何依赖）
+  } else if (sub.deps) {
+    clearTracking(sub.deps)
+    sub.deps = undefined
+  }
+}
+
+/**
+ * 清理依赖函数链表
+ */
+function clearTracking(link: Link){
+  while(link){
+    const { prevSub, nextSub, dep, nextDep} = link
+
+    /**
+     * 1. 如果上一个节点存在，就把它的nextSub指向当前节点的下一个节点
+     * 2. 如果没有上一个节点，表示是头节点，那就把dep.subs指向当前节点的下一个节点
+     */
+    if(prevSub){
+      prevSub.nextSub = nextSub
+      link.nextSub = undefined
+    }else{
+      dep.subs = nextSub
+    }
+
+    /**
+     * 1. 如果下一个节点存在，就把它的prevSub指向当前节点的上一个节点
+     * 2. 如果没有下一个节点，表示是尾节点，那就把dep.subsTail指向当前节点的上一个节点
+     */
+    if(nextSub){
+      nextSub.prevSub = prevSub
+      link.prevSub = undefined
+    }else{
+      dep.subsTail = prevSub
+    }
+
+    // 清除引用，帮助垃圾回收
+    link.dep = link.sub = undefined
+    link.nextDep = undefined
+
+    // 移动到下一个节点
+    link = nextDep
+  }
+}
+```
+
+### 3. 清理机制的工作原理
+
+1. **标记阶段**：
+   - 在effect执行前，startTrack将depsTail设为undefined
+   - 执行过程中，通过link函数复用或创建新的依赖节点，并更新depsTail
+
+2. **清理阶段**：
+   - 执行结束后，endTrack检查依赖链表状态
+   - 如果depsTail存在，清理depsTail之后的所有节点（这些节点在本次执行中没有被访问到）
+   - 如果depsTail不存在但deps存在，清理整个deps链表（本次执行没有访问任何依赖）
+
+3. **节点移除**：
+   - clearTracking函数负责从链表中移除节点
+   - 同时维护双向链表的完整性，更新前后节点的引用
+   - 清除节点的引用，帮助垃圾回收
+
+### 4. 应用场景示例
+
+#### 条件分支场景
+
+```javascript
+effect(() => {
+  if(flag.value){
+    app.innerHTML = name.value  // 分支1
+  } else {
+    app.innerHTML = age.value   // 分支2
+  }
+})
+```
+
+- 初始化时flag为true，依赖链表为：flag → name
+- 点击flagBtn后flag变为false，执行分支2
+- 新的依赖链表为：flag → age
+- endTrack检测到name不再被依赖，从name的订阅者链表中移除effect
+- 此后name变化不会再触发effect执行
+
+#### 提前返回场景
+
+```javascript
+effect(() => {
+  if(count > 0) return
+  count++
+  // 后续代码...
+})
+```
+
+- 第二次执行时，遇到return提前返回
+- 没有访问任何依赖，depsTail保持undefined
+- endTrack检测到deps存在但depsTail不存在，清理整个deps链表
+- 此后任何依赖变化都不会触发effect执行
 
 ## 总结
 
-通过建立双向依赖链表和实现节点复用机制，我们成功解决了effect函数执行次数呈指数级增长的问题。这种设计体现了Vue3响应式系统的精妙之处：
+Vue3响应式系统中的effect函数执行问题是由于依赖收集机制不完善导致的。我们通过三步优化解决了这个问题：
 
-1. **双向追踪**：不仅让响应式对象知道哪些effect依赖它，也让effect知道它依赖哪些响应式对象
-2. **状态标记**：通过巧妙设置depsTail状态来标记effect的执行阶段
-3. **节点复用**：避免重复创建链表节点，保持依赖关系的稳定性
+1. **建立双向依赖链表**：让effect知道它依赖哪些ref，同时让ref知道哪些effect依赖它
+2. **实现节点复用机制**：
+   - 初始版本：仅检查链表头节点，解决单一依赖场景
+   - 优化版本：使用depsTail作为遍历进度指针，解决多依赖场景
+3. **过期依赖清理**：
+   - 通过startTrack和endTrack标记依赖收集的开始和结束
+   - 使用clearTracking函数移除不再需要的依赖
+   - 解决条件型依赖和提前返回场景下的问题
 
-这种实现方式确保了响应式系统的高效运行，避免了不必要的性能开销，是Vue3响应式系统设计中的一个关键优化点。
+这些优化确保了响应式系统的高效运行，避免了不必要的性能开销和内存泄漏，是Vue3响应式系统设计中的关键优化点。
