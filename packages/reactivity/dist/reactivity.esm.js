@@ -4,9 +4,14 @@ var ReactiveEffect = class {
   constructor(fn) {
     this.fn = fn;
   }
+  // 依赖项链表的头节点，指向Link
+  deps;
+  // 依赖项链表的尾节点，指向Link
+  depsTail;
   run() {
     const prevSub = activeSub;
     activeSub = this;
+    this.depsTail = void 0;
     try {
       return this.fn();
     } finally {
@@ -38,13 +43,26 @@ function effect(fn, options) {
 
 // packages/reactivity/src/system.ts
 function link(dep, sub) {
+  if (sub.depsTail === void 0 && sub.deps) {
+    let currentDep = sub.deps;
+    while (currentDep) {
+      if (currentDep.dep === dep) {
+        sub.depsTail = currentDep;
+        return;
+      }
+      currentDep = currentDep.nextDep;
+    }
+  }
   const newLink = {
     sub,
     // 指向目前的订阅者 (activeSub)
+    dep,
     nextSub: void 0,
     // 指向下一个节点 (初始化为空)
-    prevSub: void 0
+    prevSub: void 0,
     // 指向前一个节点 (初始化为空)
+    nextDep: void 0
+    // 下一个依赖项节点 (初始化为空)
   };
   if (dep.subsTail) {
     dep.subsTail.nextSub = newLink;
@@ -53,6 +71,13 @@ function link(dep, sub) {
   } else {
     dep.subs = newLink;
     dep.subsTail = newLink;
+  }
+  if (sub.depsTail) {
+    sub.depsTail.nextDep = newLink;
+    sub.depsTail = newLink;
+  } else {
+    sub.deps = newLink;
+    sub.depsTail = newLink;
   }
 }
 function propagate(subs) {
