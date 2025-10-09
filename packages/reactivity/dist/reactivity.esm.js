@@ -1,46 +1,3 @@
-// packages/reactivity/src/effect.ts
-var activeSub;
-var ReactiveEffect = class {
-  constructor(fn) {
-    this.fn = fn;
-  }
-  // 依赖项链表的头节点，指向Link
-  deps;
-  // 依赖项链表的尾节点，指向Link
-  depsTail;
-  run() {
-    const prevSub = activeSub;
-    activeSub = this;
-    this.depsTail = void 0;
-    try {
-      return this.fn();
-    } finally {
-      activeSub = prevSub;
-    }
-  }
-  /*
-   * 如果依赖数据发生变化，由此方法通知更新。
-   */
-  notify() {
-    this.scheduler();
-  }
-  /*
-   * 默认的调度器，直接调用 run 方法。
-   * 如果用户传入了自定义的 scheduler，它会作为实例属性覆盖掉这个原型方法。
-   */
-  scheduler() {
-    this.run();
-  }
-};
-function effect(fn, options) {
-  const e = new ReactiveEffect(fn);
-  Object.assign(e, options);
-  e.run();
-  const runner = e.run.bind(e);
-  runner.effect = e;
-  return runner;
-}
-
 // packages/reactivity/src/system.ts
 function link(dep, sub) {
   const currentDep = sub.depsTail;
@@ -53,12 +10,12 @@ function link(dep, sub) {
     sub,
     // 指向目前的订阅者 (activeSub)
     dep,
+    nextDep,
+    // 下一个依赖项节点
     nextSub: void 0,
     // 指向下一个节点 (初始化为空)
-    prevSub: void 0,
+    prevSub: void 0
     // 指向前一个节点 (初始化为空)
-    nextDep: void 0
-    // 下一个依赖项节点 (初始化为空)
   };
   if (dep.subsTail) {
     dep.subsTail.nextSub = newLink;
@@ -84,6 +41,85 @@ function propagate(subs) {
     link2 = link2.nextSub;
   }
   queuedEffect.forEach((effect2) => effect2.notify());
+}
+function startTrack(sub) {
+  sub.depsTail = void 0;
+}
+function endTrack(sub) {
+  const depsTail = sub.depsTail;
+  if (depsTail) {
+    if (depsTail.nextDep) {
+      clearTracking(depsTail.nextDep);
+      depsTail.nextDep = void 0;
+    }
+  } else if (sub.deps) {
+    clearTracking(sub.deps);
+    sub.deps = void 0;
+  }
+}
+function clearTracking(link2) {
+  while (link2) {
+    const { prevSub, nextSub, dep, nextDep } = link2;
+    if (prevSub) {
+      prevSub.nextSub = nextSub;
+      link2.nextSub = void 0;
+    } else {
+      dep.subs = nextSub;
+    }
+    if (nextSub) {
+      nextSub.prevSub = prevSub;
+      link2.prevSub = void 0;
+    } else {
+      dep.subsTail = prevSub;
+    }
+    link2.dep = link2.sub = void 0;
+    link2.nextDep = void 0;
+    link2 = nextDep;
+  }
+}
+
+// packages/reactivity/src/effect.ts
+var activeSub;
+var ReactiveEffect = class {
+  constructor(fn) {
+    this.fn = fn;
+  }
+  // 依赖项链表的头节点，指向Link
+  deps;
+  // 依赖项链表的尾节点，指向Link
+  depsTail;
+  run() {
+    const prevSub = activeSub;
+    activeSub = this;
+    startTrack(this);
+    try {
+      return this.fn();
+    } finally {
+      endTrack(this);
+      activeSub = prevSub;
+    }
+  }
+  /*
+   * 如果依赖数据发生变化，由此方法通知更新。
+   */
+  notify() {
+    this.scheduler();
+  }
+  /*
+   * 默认的调度器，直接调用 run 方法。
+   * 如果用户传入了自定义的 scheduler，它会作为实例属性覆盖掉这个原型方法。
+   */
+  scheduler() {
+    this.run();
+  }
+};
+function effect(fn, options) {
+  const e = new ReactiveEffect(fn);
+  Object.assign(e, options);
+  e.run();
+  const runner = e.run.bind(e);
+  runner.effect = e;
+  return runner;
 }
 
 // packages/reactivity/src/ref.ts
