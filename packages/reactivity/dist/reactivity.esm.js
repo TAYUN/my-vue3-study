@@ -43,15 +43,11 @@ function effect(fn, options) {
 
 // packages/reactivity/src/system.ts
 function link(dep, sub) {
-  if (sub.depsTail === void 0 && sub.deps) {
-    let currentDep = sub.deps;
-    while (currentDep) {
-      if (currentDep.dep === dep) {
-        sub.depsTail = currentDep;
-        return;
-      }
-      currentDep = currentDep.nextDep;
-    }
+  const currentDep = sub.depsTail;
+  const nextDep = currentDep === void 0 ? sub.deps : currentDep.nextDep;
+  if (nextDep && nextDep.dep === dep) {
+    sub.depsTail = nextDep;
+    return;
   }
   const newLink = {
     sub,

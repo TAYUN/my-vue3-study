@@ -37,22 +37,14 @@ export interface Link {
  * 当依赖项(ref)变化时，需要通知订阅者(effect)
  */
 export function link(dep, sub) {
-  /**
-   * 复用节点
-   * 如果 sub.depsTail 是 undefined，并且存在 sub.deps 头节点，表示需要复用
-   */
-  if (sub.depsTail === undefined && sub.deps) {
-    let currentDep = sub.deps
-    // 遍历 effect 的旧依赖链表
-    while (currentDep) {
-      // 如果当前遍历到的旧依赖 link 所连接的 ref，与当前要连接的 ref 相等
-      if (currentDep.dep === dep) {
-        // 表示之前已经收集过此依赖，直接复用
-        sub.depsTail = currentDep // 移动尾节点指针，指向刚刚复用的节点
-        return // 直接返回，不再新增节点
-      }
-      currentDep = currentDep.nextDep
-    }
+  // 复用节点
+  const currentDep = sub.depsTail
+  // 核心逻辑：根据 currentDep 是否存在，来决定下一个要检查的节点
+  const nextDep = currentDep === undefined ? sub.deps : currentDep.nextDep
+  // 如果 nextDep 存在，且 nextDep.dep 等于我当前要收集的 dep
+  if (nextDep && nextDep.dep === dep) {
+    sub.depsTail = nextDep // 移动指针
+    return
   }
 
   // 建立新的链表节点
