@@ -51,9 +51,9 @@ export function link(dep, sub) {
   const newLink: Link = {
     sub, // 指向目前的订阅者 (activeSub)
     dep,
+    nextDep, // 下一个依赖项节点
     nextSub: undefined, // 指向下一个节点 (初始化为空)
     prevSub: undefined, // 指向前一个节点 (初始化为空)
-    nextDep: undefined, // 下一个依赖项节点 (初始化为空)
   }
 
   // 如果 dep 已经有尾端订阅者 (代表链表不是空的)
@@ -97,4 +97,66 @@ export function propagate(subs) {
   }
 
   queuedEffect.forEach(effect => effect.notify())
+}
+
+export function startTrack(sub){
+  sub.depsTail = undefined
+}
+
+export function endTrack(sub) {
+  const depsTail = sub.depsTail
+
+  /**
+   *
+   * 情况一解法： depsTail 存在，并且 depsTail 的 nextDep 存在，表示后续链表节点应该移除
+   */
+  if (depsTail) {
+    if (depsTail.nextDep) {
+      clearTracking(depsTail.nextDep)
+      depsTail.nextDep = undefined
+    }
+    // 情况二：depsTail 不存在，但旧的 deps 头节点存在，清除所有节点
+  } else if (sub.deps) {
+    clearTracking(sub.deps)
+    sub.deps = undefined
+  }
+}
+
+/**
+ * 清理依赖函数链表
+ */
+
+function clearTracking(link: Link){
+  while(link){
+    const { prevSub, nextSub, dep, nextDep} = link
+
+    /**
+     * 1. 如果上一个节点存在 sub，就把它的 nextSub 指向当前节点的下一个节点
+     * 2. 如果没有 sub，表示是头节点，那就把 dep.subs 指向当前节点的下一个节点
+     */
+    if(prevSub){
+      prevSub.nextSub = nextSub
+      link.nextSub = undefined
+    }else{
+      dep.subs = nextSub
+    }
+
+    /**
+     * 1. 如果下一个节点存在 sub，就把它的 prevSub 指向当前节点的上一个节点
+     * 2. 如果没有 sub，表示是尾节点，那就把 dep.subsTail 指向当前节点的上一个节点
+     */
+
+    if(nextSub){
+      nextSub.prevSub = prevSub
+      link.prevSub = undefined
+    }else{
+      dep.subsTail = prevSub
+    }
+
+    link.dep = link.sub = undefined
+
+    link.nextDep = undefined
+
+    link = nextDep
+  }
 }

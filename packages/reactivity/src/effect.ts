@@ -1,5 +1,5 @@
 // effect.ts
-import { Link } from './system'
+import { endTrack, Link,startTrack } from './system'
 
 export let activeSub: ReactiveEffect
 
@@ -15,11 +15,12 @@ export class ReactiveEffect {
     const prevSub = activeSub
     // 每次执行 fn 之前，把 this 实例放到 activeSub 上
     activeSub = this
-    this.depsTail = undefined
+    startTrack(this)
     // 注意用try catch
     try {
       return this.fn()
     } finally {
+      endTrack(this)
       // 执行完毕后，清空 activeSub
       activeSub = prevSub
     }
@@ -30,7 +31,7 @@ export class ReactiveEffect {
   notify() {
     this.scheduler()
   }
-  
+
   /*
    * 默认的调度器，直接调用 run 方法。
    * 如果用户传入了自定义的 scheduler，它会作为实例属性覆盖掉这个原型方法。
@@ -42,10 +43,10 @@ export class ReactiveEffect {
 
 export function effect(fn, options) {
   const e = new ReactiveEffect(fn)
-  
+
   // 将 options (包含 scheduler) 合并到 effect 实例上
   Object.assign(e, options)
-  
+
   e.run()
 
   /*
@@ -57,6 +58,8 @@ export function effect(fn, options) {
 
   // 将 effect 实例挂载到 runner 函数上，方便外部访问
   runner.effect = e
-  
+
   return runner
 }
+
+
