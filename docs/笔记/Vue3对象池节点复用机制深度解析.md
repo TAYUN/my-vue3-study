@@ -46,7 +46,7 @@ effect(() => {
   } else if (count.value === 1) {  // 第1个依赖：count
     app.innerHTML = age.value      // 第2个依赖：age
   } else if (count.value === 2) {  // 第1个依赖：count
-    app.innerHTML = phone.value    // 第2个依赖：phone
+    app.innerHTML = phone.value    // 第3个依赖：phone
   }
 })
 ```
@@ -93,9 +93,8 @@ linkPool：空
      * 从linkPool取出count节点复用
      * linkPool = name节点
    - 访问age.value → link(age, sub)
-     * 从linkPool取出name节点，但发现dep不匹配
-     * 创建新的age节点
-     * 将name节点放回linkPool或继续使用
+     * 从linkPool取出节点，直接设置为age节点
+     * 没有dep匹配检查，直接复用内存空间
 ```
 
 #### 切换到count = 2
@@ -156,18 +155,18 @@ if (linkPool) {
 - 后进先出确保了最后清理的节点（依赖链表的头节点）最先被复用
 - 这与依赖收集的顺序完美匹配
 
-#### 类型安全保证
-- 虽然从池中取出节点，但会重新设置所有关键属性
-- `newLink.dep = dep`确保了依赖类型的正确性
-- 即使类型不匹配，也只是复用了内存空间，逻辑上是全新的节点
+#### 内存复用机制
+- 从池中取出节点后，直接重新设置所有关键属性
+- `newLink.dep = dep`直接设置新的依赖类型
+- 没有类型匹配检查，纯粹是内存空间的复用
 
 ### 5. 边界情况处理
 
 #### 依赖类型变化
 当从name切换到age时：
-1. 尝试从linkPool取出节点（可能是name节点）
-2. 重新设置`dep`为age
-3. 节点逻辑上变成了age节点，只是复用了内存
+1. 从linkPool取出节点（任意节点）
+2. 直接设置`dep`为age
+3. 节点变成了age节点，复用了内存空间
 
 #### 依赖数量变化
 - 如果新的依赖数量少于池中节点数量，多余节点保留在池中
