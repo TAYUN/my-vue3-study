@@ -28,9 +28,11 @@
         console.count('effect')
         if (count.value === 0) {
           app.innerHTML = name.value
-        } else if (count.value === 1) {
+        }
+        if (count.value >= 1) {
           app.innerHTML = age.value
-        } else if (count.value === 2) {
+        }
+        if (count.value >= 2) {
           app.innerHTML = phone.value
         }
       })
@@ -46,7 +48,7 @@
       }
 
       btn.onclick = () => {
-        count.value =(count.value + 1) % 3
+        count.value = (count.value + 1) % 3
         btn.innerHTML = 'count:' + count.value
       }
     </script>
