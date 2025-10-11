@@ -30,6 +30,8 @@ export interface Link {
   // 下一个依赖项节点
   nextDep: Link | undefined
 }
+// 复用节点池
+let linkPool: Link
 
 /** 建立链表关系
  * dep 是依赖项，例如 ref/computed/reactive
@@ -47,13 +49,28 @@ export function link(dep, sub) {
     return
   }
 
-  // 建立新的链表节点
-  const newLink: Link = {
-    sub, // 指向目前的订阅者 (activeSub)
-    dep,
-    nextDep, // 下一个依赖项节点
-    nextSub: undefined, // 指向下一个节点 (初始化为空)
-    prevSub: undefined, // 指向前一个节点 (初始化为空)
+  let newLink: Link
+
+  if (linkPool) {
+    /**
+     * 如果 linkPool 存在，表示有可复用的节点，那就从 linkPool 中取出第一个节点
+     */
+    newLink = linkPool
+    linkPool = linkPool.nextDep // 池指针后移
+    newLink.nextDep = nextDep
+    newLink.sub = sub
+    newLink.dep = dep
+  } else {
+    /**
+     * 如果 linkPool 不存在，表示没有可复用的节点，那就创建一个新节点
+     */
+    newLink = {
+      sub, // 指向目前的订阅者 (activeSub)
+      dep,
+      nextDep, // 下一个依赖项节点
+      nextSub: undefined, // 指向下一个节点 (初始化为空)
+      prevSub: undefined, // 指向前一个节点 (初始化为空)
+    }
   }
 
   // 如果 dep 已经有尾端订阅者 (代表链表不是空的)
@@ -99,7 +116,7 @@ export function propagate(subs) {
   queuedEffect.forEach(effect => effect.notify())
 }
 
-export function startTrack(sub){
+export function startTrack(sub) {
   sub.depsTail = undefined
 }
 
@@ -126,18 +143,18 @@ export function endTrack(sub) {
  * 清理依赖函数链表
  */
 
-function clearTracking(link: Link){
-  while(link){
-    const { prevSub, nextSub, dep, nextDep} = link
+function clearTracking(link: Link) {
+  while (link) {
+    const { prevSub, nextSub, dep, nextDep } = link
 
     /**
      * 1. 如果上一个节点存在 sub，就把它的 nextSub 指向当前节点的下一个节点
      * 2. 如果没有 sub，表示是头节点，那就把 dep.subs 指向当前节点的下一个节点
      */
-    if(prevSub){
+    if (prevSub) {
       prevSub.nextSub = nextSub
       link.nextSub = undefined
-    }else{
+    } else {
       dep.subs = nextSub
     }
 
@@ -146,16 +163,20 @@ function clearTracking(link: Link){
      * 2. 如果没有 sub，表示是尾节点，那就把 dep.subsTail 指向当前节点的上一个节点
      */
 
-    if(nextSub){
+    if (nextSub) {
       nextSub.prevSub = prevSub
       link.prevSub = undefined
-    }else{
+    } else {
       dep.subsTail = prevSub
     }
 
     link.dep = link.sub = undefined
 
-    link.nextDep = undefined
+    /**
+     * 把不再需要的节点放回 linkPool 中，以备复用
+     */
+    link.nextDep = linkPool
+    linkPool = link
 
     link = nextDep
   }

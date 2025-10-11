@@ -1,4 +1,5 @@
 // packages/reactivity/src/system.ts
+var linkPool;
 function link(dep, sub) {
   const currentDep = sub.depsTail;
   const nextDep = currentDep === void 0 ? sub.deps : currentDep.nextDep;
@@ -6,17 +7,26 @@ function link(dep, sub) {
     sub.depsTail = nextDep;
     return;
   }
-  const newLink = {
-    sub,
-    // 指向目前的订阅者 (activeSub)
-    dep,
-    nextDep,
-    // 下一个依赖项节点
-    nextSub: void 0,
-    // 指向下一个节点 (初始化为空)
-    prevSub: void 0
-    // 指向前一个节点 (初始化为空)
-  };
+  let newLink;
+  if (linkPool) {
+    newLink = linkPool;
+    linkPool = linkPool.nextDep;
+    newLink.nextDep = nextDep;
+    newLink.sub = sub;
+    newLink.dep = dep;
+  } else {
+    newLink = {
+      sub,
+      // 指向目前的订阅者 (activeSub)
+      dep,
+      nextDep,
+      // 下一个依赖项节点
+      nextSub: void 0,
+      // 指向下一个节点 (初始化为空)
+      prevSub: void 0
+      // 指向前一个节点 (初始化为空)
+    };
+  }
   if (dep.subsTail) {
     dep.subsTail.nextSub = newLink;
     newLink.prevSub = dep.subsTail;
@@ -73,7 +83,8 @@ function clearTracking(link2) {
       dep.subsTail = prevSub;
     }
     link2.dep = link2.sub = void 0;
-    link2.nextDep = void 0;
+    link2.nextDep = linkPool;
+    linkPool = link2;
     link2 = nextDep;
   }
 }
