@@ -515,9 +515,126 @@ effect(() => {
 - endTrack检测到deps存在但depsTail不存在，清理整个deps链表
 - 此后任何依赖变化都不会触发effect执行
 
+## 对象池优化（Object Pool）
+
+在完成了依赖清理机制后，我们发现了一个新的性能问题：当依赖频繁变化时，系统需要不断地创建和销毁Link节点。每次建立依赖关系都会触发内存分配，频繁的分配/释放会导致：
+
+1. **垃圾回收(GC)压力增大**：GC执行得越频繁，就越可能造成应用程序的短暂卡顿
+2. **内存碎片化**：频繁处理和释放小块内存，可能导致内存空间中出现大量不连续的内存碎片
+3. **性能下降**：内存管理本身的开销
+
+### Object Pool设计模式
+
+对象池（Object Pool）是一种设计模式，用于管理和复用对象，以避免频繁创建和销毁对象带来的性能损耗。
+
+与其在需要时创建、在用完时销毁，不如将可复用的对象统一管理起来，实现循环利用。这个对象池就像一个"仓库"，预先存放一批可以重复使用的对象。当需要对象时从池中取出，使用完毕后放回到池中，而不是销毁它。
+
+这样可以达到：
+- **复用已分配的内存**：避免了大量的内存分配操作
+- **减少垃圾回收次数**：降低对主线程的干扰
+
+### LinkPool实现
+
+LinkPool采用单向链表结构，并且依照后进先出（LIFO）的原则。主要是因为入池、出池都只需要对头节点进行操作，时间复杂度为O(1)，效率很高。
+
+#### LinkPool生命周期
+
+1. **初始化**：linkPool池是空的，什么都还没运行，没有可回收的节点
+2. **移除Link2节点**：通过endTrack(sub)判定有"尾段过期"→调用clearTracking(Link2)，Link2被回收到池中
+3. **移除Link1节点**：通过endTrack(sub)再次判定有"尾段过期"→调用clearTracking(Link1)，Link1被回收到池中，并排在Link2前面
+4. **复用Link1**：执行link(dep, sub)，这次if(linkPool)为true，走复用分支，从池中取出Link1进行复用
+
+#### 关键代码实现
+
+**在link函数中添加对象池逻辑**：
+
+```typescript
+export function link(dep, sub) {
+  const currentDep = sub.depsTail
+  const nextDep = currentDep === undefined ? sub.deps : currentDep.nextDep
+  if (nextDep && nextDep.dep === dep) {
+    sub.depsTail = nextDep
+    return
+  }
+
+  let newLink: Link
+
+  /**
+   * 查看linkPool是否存在，如果存在，表示有可复用的节点
+   */
+  if (linkPool) {
+    newLink = linkPool
+    linkPool = linkPool.nextDep // 池指针后移
+    newLink.nextDep = nextDep
+    newLink.dep = dep
+    newLink.sub = sub
+  } else {
+    /**
+     * 如果linkPool不存在，表示没有可复用的节点，那就创建一个新节点
+     */
+    newLink = {
+      sub,
+      dep,
+      nextDep,
+      nextSub: undefined,
+      prevSub: undefined
+    }
+  }
+
+  // 后续链表操作保持不变...
+}
+```
+
+**在clearTracking函数中添加回收逻辑**：
+
+```typescript
+function clearTracking(link: Link) {
+  while (link) {
+    const { prevSub, nextSub, dep, nextDep } = link
+
+    // 从双向链表中移除节点的逻辑...
+    if (prevSub) {
+      prevSub.nextSub = nextSub
+      link.nextSub = undefined
+    } else {
+      dep.subs = nextSub
+    }
+
+    if (nextSub) {
+      nextSub.prevSub = prevSub
+      link.prevSub = undefined
+    } else {
+      dep.subsTail = prevSub
+    }
+
+    // 清除引用
+    link.dep = undefined
+    link.sub = undefined
+
+    /**
+     * 把不再需要的节点放回linkPool中，以备复用
+     */
+    link.nextDep = linkPool
+    linkPool = link
+
+    // 移动到下一个节点
+    link = nextDep
+  }
+}
+```
+
+### 对象池的优势
+
+1. **内存复用**：避免频繁的内存分配和释放操作
+2. **减少GC压力**：降低垃圾回收的频率，减少应用卡顿
+3. **提高性能**：O(1)时间复杂度的入池和出池操作
+4. **减少内存碎片**：重复使用相同大小的内存块
+
+通过对象池机制，Link节点的生命周期从"用完即毁"变成了"循环再生"，从根本上解决了因动态依赖而产生的频繁内存分配与回收问题。
+
 ## 总结
 
-Vue3响应式系统中的effect函数执行问题是由于依赖收集机制不完善导致的。我们通过三步优化解决了这个问题：
+Vue3响应式系统中的effect函数执行问题是由于依赖收集机制不完善导致的。我们通过四步优化解决了这个问题：
 
 1. **建立双向依赖链表**：让effect知道它依赖哪些ref，同时让ref知道哪些effect依赖它
 2. **实现节点复用机制**：
@@ -527,5 +644,9 @@ Vue3响应式系统中的effect函数执行问题是由于依赖收集机制不�
    - 通过startTrack和endTrack标记依赖收集的开始和结束
    - 使用clearTracking函数移除不再需要的依赖
    - 解决条件型依赖和提前返回场景下的问题
+4. **对象池优化**：
+   - 通过LinkPool实现Link节点的复用
+   - 采用LIFO结构，提供O(1)时间复杂度的操作
+   - 减少内存分配/释放，降低GC压力
 
 这些优化确保了响应式系统的高效运行，避免了不必要的性能开销和内存泄漏，是Vue3响应式系统设计中的关键优化点。
