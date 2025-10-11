@@ -51,6 +51,7 @@ export function link(dep, sub) {
 
   let newLink: Link
 
+  // 复用节点 （优化重复删除创建）
   if (linkPool) {
     /**
      * 如果 linkPool 存在，表示有可复用的节点，那就从 linkPool 中取出第一个节点
@@ -181,3 +182,45 @@ function clearTracking(link: Link) {
     link = nextDep
   }
 }
+
+/**
+ * ### 3. 具体执行流程示例
+假设依赖链表是： count → name → age
+
+清理过程 ：
+
+1. 1.
+   第1次循环 ：处理count节点
+   
+   - 清理count节点的双向链表连接
+   - count.nextDep = linkPool （此时linkPool为空）
+   - linkPool = count
+   - link = name （移动到下一个）
+2. 2.
+   第2次循环 ：处理name节点
+   
+   - 清理name节点的双向链表连接
+   - name.nextDep = linkPool （指向count）
+   - linkPool = name
+   - link = age （移动到下一个）
+3. 3.
+   第3次循环 ：处理age节点
+   
+   - 清理age节点的双向链表连接
+   - age.nextDep = linkPool （指向name）
+   - linkPool = age
+   - link = undefined （结束）
+最终结果 ： linkPool = age → name → count
+
+### 4. 为什么这样设计？
+1. 1.
+   遍历效率 ：从前往后遍历是最自然的链表遍历方式
+2. 2.
+   LIFO复用 ：后清理的节点先复用，这样能更好地匹配依赖收集的顺序
+3. 3.
+   内存局部性 ：最近清理的节点更可能被立即复用
+### 5. 关键理解
+- 清理遍历 ：从前往后（count → name → age）
+- 放入池子 ：LIFO顺序（age → name → count）
+- 从池取出 ：LIFO顺序（age ← name ← count）
+ */
