@@ -1,5 +1,5 @@
 // effect.ts
-import { endTrack, Link,startTrack } from './system'
+import { endTrack, Link, startTrack } from './system'
 
 export let activeSub: ReactiveEffect
 
@@ -8,6 +8,7 @@ export class ReactiveEffect {
   deps: Link
   // 依赖项链表的尾节点，指向Link
   depsTail: Link
+  tracking = false // 是否正在执行（收集中）
   constructor(public fn: Function) {}
 
   run() {
@@ -61,5 +62,3 @@ export function effect(fn, options) {
 
   return runner
 }
-
-

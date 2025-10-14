@@ -119,9 +119,11 @@ export function propagate(subs) {
 
 export function startTrack(sub) {
   sub.depsTail = undefined
+  sub.tracking = true // 是否正在执行（收集中）
 }
 
 export function endTrack(sub) {
+  sub.tracking = false // 执行结束，取消标记
   const depsTail = sub.depsTail
 
   /**
