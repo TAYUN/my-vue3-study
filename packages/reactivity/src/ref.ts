@@ -1,10 +1,11 @@
+import { hasChange, isObject } from '@vue/shared'
 import { activeSub } from './effect'
-import { link, Link, propagate } from './system';
+import { link, Link, propagate } from './system'
+import { reactive } from './reactive'
 
 enum ReactiveFlags {
   IS_REF = '__v_isRef',
 }
-
 
 class RefImpl {
   _value; // 保存实际值
@@ -17,7 +18,9 @@ class RefImpl {
   // 订阅者effect链表尾节点，指向最后一个订阅者
   subsTail: Link
   constructor(value) {
-    this._value = value
+    // S情况四：嵌套对象传入 ref
+    // 如果 value 是对象，则先转为响应式对象
+    this._value = isObject(value) ? reactive(value) : value
   }
 
   // 收集依赖
@@ -31,9 +34,13 @@ class RefImpl {
 
   // 触发更新
   set value(newValue) {
-    this._value = newValue
-    if(this.subs){
-      triggerRef(this)
+    if (hasChange(newValue, this._value)) {
+      // S情况四：嵌套对象传入 ref
+      // 值发生变化，则触发更新
+      this._value = isObject(newValue) ? reactive(newValue) : newValue
+      if (this.subs) {
+        triggerRef(this)
+      }
     }
   }
 }
@@ -48,9 +55,8 @@ export function isRef(value) {
 
 export function trackRef(dep) {
   link(dep, activeSub)
-} 
+}
 
 export function triggerRef(dep) {
   propagate(dep.subs)
-
 }
