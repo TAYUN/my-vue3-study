@@ -102,7 +102,7 @@ targetMap: WeakMap {
 实现reactive过程中需要处理的问题：
 
 1. 非对象类型的处理问题
-2. target是对象，怎么关联依赖关系和触发依赖更新（targetMap和Dep的作用）
+2. target是对象，对象的每个属性怎么关联依赖关系和触发依赖更新（targetMap和Dep的作用）
 3. 访问对象的访问器属性的时候，this的指向问题（receiver的作用）
 4. 重复代理同一个对象的问题（reactiveMap的作用）
 5. 传入的对象是一个代理对象的问题（reactiveSet的作用）
