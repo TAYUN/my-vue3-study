@@ -110,7 +110,11 @@ export function propagate(subs) {
   let queuedEffect = []
 
   while (link) {
-    queuedEffect.push(link.sub)
+    const sub = link.sub
+    // 只有不在执行中的 effect 才加入队列
+    if (!sub.tracking) {
+      queuedEffect.push(sub)
+    }
     link = link.nextSub
   }
 
