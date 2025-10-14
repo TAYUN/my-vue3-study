@@ -140,6 +140,97 @@ function effect(fn, options) {
   return runner;
 }
 
+// packages/shared/src/index.ts
+function isObject(obj) {
+  return obj && typeof obj === "object" && !Array.isArray(obj) && obj !== null;
+}
+function hasChange(newValue, oldValue) {
+  return !Object.is(newValue, oldValue);
+}
+
+// packages/reactivity/src/dep.ts
+var Dep = class {
+  subs;
+  subsTail;
+  constructor() {
+  }
+};
+var targetMap = /* @__PURE__ */ new WeakMap();
+function track(target, key) {
+  if (!activeSub) return;
+  let depsMap = targetMap.get(target);
+  if (!depsMap) {
+    depsMap = /* @__PURE__ */ new Map();
+    targetMap.set(target, depsMap);
+  }
+  let dep = depsMap.get(key);
+  if (!dep) {
+    dep = new Dep();
+    depsMap.set(key, dep);
+  }
+  link(dep, activeSub);
+}
+function trigger(target, key) {
+  const depsMap = targetMap.get(target);
+  if (!depsMap) return;
+  const dep = depsMap.get(key);
+  if (!dep) return;
+  if (dep.subs) {
+    propagate(dep.subs);
+  }
+}
+
+// packages/reactivity/src/baseHandlers.ts
+var mutableHandlers = {
+  get(target, key, receiver) {
+    track(target, key);
+    const res = Reflect.get(target, key, receiver);
+    if (isRef(res)) {
+      return res.value;
+    }
+    if (isObject(res)) {
+      return reactive(res);
+    }
+    return res;
+  },
+  set(target, key, newValue, receiver) {
+    const oldValue = target[key];
+    if (isRef(oldValue) && !isRef(newValue)) {
+      oldValue.value = newValue;
+      return true;
+    }
+    const res = Reflect.set(target, key, newValue, receiver);
+    if (hasChange(newValue, oldValue)) {
+      trigger(target, key);
+    }
+    return res;
+  }
+};
+
+// packages/reactivity/src/reactive.ts
+function reactive(target) {
+  return createReactiveObject(target);
+}
+var reactiveMap = /* @__PURE__ */ new WeakMap();
+var reactiveSet = /* @__PURE__ */ new Set();
+function createReactiveObject(target) {
+  if (!isObject(target)) return target;
+  const existingProxy = reactiveMap.get(target);
+  if (existingProxy) {
+    return existingProxy;
+  }
+  if (reactiveSet.has(target)) {
+    return reactiveMap.get(target);
+  }
+  const proxy = new Proxy(target, mutableHandlers);
+  reactiveMap.set(target, proxy);
+  reactiveSet.add(proxy);
+  return proxy;
+}
+function isReactive(target) {
+  return reactiveSet.has(target);
+}
+
 // packages/reactivity/src/ref.ts
 var RefImpl = class {
   _value;
@@ -151,7 +242,7 @@ var RefImpl = class {
   // 订阅者effect链表尾节点，指向最后一个订阅者
   subsTail;
   constructor(value) {
-    this._value = value;
+    this._value = isObject(value) ? reactive(value) : value;
   }
   // 收集依赖
   get value() {
@@ -162,9 +253,11 @@ var RefImpl = class {
   }
   // 触发更新
   set value(newValue) {
-    this._value = newValue;
-    if (this.subs) {
-      triggerRef(this);
+    if (hasChange(newValue, this._value)) {
+      this._value = isObject(newValue) ? reactive(newValue) : newValue;
+      if (this.subs) {
+        triggerRef(this);
+      }
     }
   }
 };
@@ -183,8 +276,11 @@ function triggerRef(dep) {
 export {
   ReactiveEffect,
   activeSub,
+  createReactiveObject,
   effect,
+  isReactive,
   isRef,
+  reactive,
   ref,
   trackRef,
   triggerRef
