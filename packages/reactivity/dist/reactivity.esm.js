@@ -47,15 +47,20 @@ function propagate(subs) {
   let link2 = subs;
   let queuedEffect = [];
   while (link2) {
-    queuedEffect.push(link2.sub);
+    const sub = link2.sub;
+    if (!sub.tracking) {
+      queuedEffect.push(sub);
+    }
     link2 = link2.nextSub;
   }
   queuedEffect.forEach((effect2) => effect2.notify());
 }
 function startTrack(sub) {
   sub.depsTail = void 0;
+  sub.tracking = true;
 }
 function endTrack(sub) {
+  sub.tracking = false;
   const depsTail = sub.depsTail;
   if (depsTail) {
     if (depsTail.nextDep) {
@@ -92,6 +97,7 @@ function clearTracking(link2) {
 // packages/reactivity/src/effect.ts
 var activeSub;
 var ReactiveEffect = class {
+  // 是否正在执行（收集中）
   constructor(fn) {
     this.fn = fn;
   }
@@ -99,6 +105,7 @@ var ReactiveEffect = class {
   deps;
   // 依赖项链表的尾节点，指向Link
   depsTail;
+  tracking = false;
   run() {
     const prevSub = activeSub;
     activeSub = this;
