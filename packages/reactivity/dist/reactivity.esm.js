@@ -43,13 +43,23 @@ function link(dep, sub) {
     sub.depsTail = newLink;
   }
 }
+function processComputedUpdate(sub) {
+  if (sub.subs && sub.update()) {
+    propagate(sub.subs);
+  }
+}
 function propagate(subs) {
   let link2 = subs;
   let queuedEffect = [];
   while (link2) {
     const sub = link2.sub;
-    if (!sub.tracking) {
-      queuedEffect.push(sub);
+    if (!sub.tracking && !sub.dirty) {
+      sub.dirty = true;
+      if ("update" in sub) {
+        processComputedUpdate(sub);
+      } else {
+        queuedEffect.push(sub);
+      }
     }
     link2 = link2.nextSub;
   }
@@ -62,6 +72,7 @@ function startTrack(sub) {
 function endTrack(sub) {
   sub.tracking = false;
   const depsTail = sub.depsTail;
+  sub.dirty = false;
   if (depsTail) {
     if (depsTail.nextDep) {
       clearTracking(depsTail.nextDep);
@@ -96,8 +107,11 @@ function clearTracking(link2) {
 
 // packages/reactivity/src/effect.ts
 var activeSub;
+function setActiveSub(sub) {
+  activeSub = sub;
+}
 var ReactiveEffect = class {
-  // 是否正在执行（收集中）
+  // 是否需要重新计算（用于控制入队）
   constructor(fn) {
     this.fn = fn;
   }
@@ -106,15 +120,17 @@ var ReactiveEffect = class {
   // 依赖项链表的尾节点，指向Link
   depsTail;
   tracking = false;
+  // 是否正在执行（收集中）
+  dirty = false;
   run() {
     const prevSub = activeSub;
-    activeSub = this;
+    setActiveSub(this);
     startTrack(this);
     try {
       return this.fn();
     } finally {
       endTrack(this);
-      activeSub = prevSub;
+      setActiveSub(prevSub);
     }
   }
   /*
@@ -146,6 +162,9 @@ function isObject(obj) {
 }
 function hasChange(newValue, oldValue) {
   return !Object.is(newValue, oldValue);
+}
+function isFunction(value) {
+  return typeof value === "function";
 }
 
 // packages/reactivity/src/dep.ts
@@ -232,6 +251,10 @@ function isReactive(target) {
 }
 
 // packages/reactivity/src/ref.ts
+var ReactiveFlags = /* @__PURE__ */ ((ReactiveFlags2) => {
+  ReactiveFlags2["IS_REF"] = "__v_isRef";
+  return ReactiveFlags2;
+})(ReactiveFlags || {});
 var RefImpl = class {
   _value;
   // 保存实际值
@@ -273,15 +296,84 @@ function trackRef(dep) {
 function triggerRef(dep) {
   propagate(dep.subs);
 }
+
+// packages/reactivity/src/computed.ts
+function computed(getterOptions) {
+  let getter;
+  let setter;
+  if (isFunction(getterOptions)) {
+    getter = getterOptions;
+  } else {
+    getter = getterOptions.get;
+    setter = getterOptions.set;
+  }
+  return new ComputedRefImpl(getter, setter);
+}
+var ComputedRefImpl = class {
+  constructor(fn, setter) {
+    this.fn = fn;
+    this.setter = setter;
+  }
+  // computed也是ref，返回true
+  ["__v_isRef" /* IS_REF */] = true;
+  _value;
+  //保持fn的返回值
+  // 作为订阅者 Dependency，记录关联的subs，等我值更新了，我要通知他们
+  // 订阅者链表头节点
+  subs;
+  // 订阅者链表尾节点
+  subsTail;
+  // 作为依赖项 Sub。记录哪些dep，被我收集了
+  // 依赖项链表的头节点，指向Link
+  deps;
+  // 依赖项链表的尾节点，指向Link
+  depsTail;
+  // 是否正在执行（收集中）
+  tracking = false;
+  // 计算属性是否需要重新计算；为 true 时重新计算
+  dirty = true;
+  get value() {
+    if (this.dirty) {
+      this.update();
+    }
+    if (activeSub) {
+      link(this, activeSub);
+    }
+    return this._value;
+  }
+  set value(newValue) {
+    if (this.setter) {
+      this.setter(newValue);
+    } else {
+      console.warn("\u6211\u662F\u53EA\u8BFB\u7684\uFF0C\u4E0D\u80FD\u8BBE\u7F6E\u503C");
+    }
+  }
+  update() {
+    const prevSub = activeSub;
+    setActiveSub(this);
+    startTrack(this);
+    try {
+      const oldValue = this._value;
+      this._value = this.fn();
+      return hasChange(oldValue, this._value);
+    } finally {
+      endTrack(this);
+      setActiveSub(prevSub);
+    }
+  }
+};
 export {
   ReactiveEffect,
+  ReactiveFlags,
   activeSub,
+  computed,
   createReactiveObject,
   effect,
   isReactive,
   isRef,
   reactive,
   ref,
+  setActiveSub,
   trackRef,
   triggerRef
 };
