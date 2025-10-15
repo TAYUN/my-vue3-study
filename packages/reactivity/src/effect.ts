@@ -2,6 +2,9 @@
 import { endTrack, Link, startTrack } from './system'
 
 export let activeSub: ReactiveEffect
+export function setActiveSub(sub) {
+  activeSub = sub
+}
 
 export class ReactiveEffect {
   // 依赖项链表的头节点，指向Link
@@ -9,13 +12,16 @@ export class ReactiveEffect {
   // 依赖项链表的尾节点，指向Link
   depsTail: Link
   tracking = false // 是否正在执行（收集中）
+
+  dirty = false // 是否需要重新计算（用于控制入队）
+
   constructor(public fn: Function) {}
 
   run() {
     // 先将当前的 Effect 存储，用于处理嵌套逻辑
     const prevSub = activeSub
     // 每次执行 fn 之前，把 this 实例放到 activeSub 上
-    activeSub = this
+    setActiveSub(this)
     startTrack(this)
     // 注意用try catch
     try {
@@ -23,7 +29,7 @@ export class ReactiveEffect {
     } finally {
       endTrack(this)
       // 执行完毕后，清空 activeSub
-      activeSub = prevSub
+      setActiveSub(prevSub)
     }
   }
   /*

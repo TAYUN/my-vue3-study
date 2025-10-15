@@ -1,7 +1,7 @@
 /**
  * 依赖项 (如 ref)
  */
-interface Dep {
+export interface Dependency {
   // 订阅者链表头节点
   subs: Link | undefined
   // 订阅者链表尾节点
@@ -10,11 +10,13 @@ interface Dep {
 /**
  * 订阅者 (如 effect)
  */
-interface Sub {
+export interface Sub {
   // 依赖项链表头节点
   deps: Link | undefined
   // 依赖项链表尾节点
   depsTail: Link | undefined
+  // 是否正在收集依赖
+  tracking: boolean
 }
 
 export interface Link {
@@ -25,7 +27,7 @@ export interface Link {
   // 上一个订阅者节点
   prevSub: Link
   // 依赖项
-  dep: Dep
+  dep: Dependency
 
   // 下一个依赖项节点
   nextDep: Link | undefined
@@ -102,6 +104,13 @@ export function link(dep, sub) {
     sub.depsTail = newLink
   }
 }
+export function processComputedUpdate(sub) {
+  // update 返回 true 表示数值发生变化，才继续向下触发 effect
+  if (sub.subs && sub.update()) {
+    // 通知其 sub 链表中的其他 sub（effect） 更新
+    propagate(sub.subs)
+  }
+}
 
 /* * 传播更新的函数
  */
@@ -111,10 +120,17 @@ export function propagate(subs) {
 
   while (link) {
     const sub = link.sub
-    // 只有不在执行中的 effect 才加入队列
-    if (!sub.tracking) {
-      queuedEffect.push(sub)
+    // 只有不在执行中的 effect，且目前是“干净状态”（dirty=false）时，才入队
+    if (!sub.tracking && !sub.dirty) {
+      // 入队前先设置为“脏”（避免同一轮事件循环被重复入队）
+      sub.dirty = true
+      if ('update' in sub) {
+        processComputedUpdate(sub)
+      } else {
+        queuedEffect.push(sub)
+      }
     }
+
     link = link.nextSub
   }
 
@@ -129,6 +145,7 @@ export function startTrack(sub) {
 export function endTrack(sub) {
   sub.tracking = false // 执行结束，取消标记
   const depsTail = sub.depsTail
+  sub.dirty = false // 本次 fn 执行完毕，复位为“干净”
 
   /**
    *
