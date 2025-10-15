@@ -111,7 +111,7 @@ function setActiveSub(sub) {
   activeSub = sub;
 }
 var ReactiveEffect = class {
-  // 是否需要重新计算（用于控制入队）
+  // 是否启用监听
   constructor(fn) {
     this.fn = fn;
   }
@@ -122,7 +122,12 @@ var ReactiveEffect = class {
   tracking = false;
   // 是否正在执行（收集中）
   dirty = false;
+  // 是否需要重新计算（用于控制入队）
+  active = true;
   run() {
+    if (!this.active) {
+      return this.fn();
+    }
     const prevSub = activeSub;
     setActiveSub(this);
     startTrack(this);
@@ -145,6 +150,13 @@ var ReactiveEffect = class {
    */
   scheduler() {
     this.run();
+  }
+  stop() {
+    if (this.active) {
+      startTrack(this);
+      endTrack(this);
+      this.active = false;
+    }
   }
 };
 function effect(fn, options) {
@@ -362,6 +374,67 @@ var ComputedRefImpl = class {
     }
   }
 };
+
+// packages/reactivity/src/watch.ts
+function watch(source, cb, options) {
+  let { immediate, once, deep } = options || {};
+  let getter;
+  if (isRef(source)) {
+    getter = () => source.value;
+  } else if (isReactive(source)) {
+    getter = () => source;
+    if (!deep) {
+      deep = true;
+    }
+  } else if (isFunction(source)) {
+    getter = source;
+  }
+  let oldValue;
+  if (once) {
+    const _cb = cb;
+    cb = (...args) => {
+      _cb(...args);
+      stop();
+    };
+  }
+  if (deep) {
+    const baseGetter = getter;
+    const depth = deep === true ? Infinity : deep;
+    getter = () => traverse(baseGetter(), depth);
+  }
+  function job() {
+    const newValue = effect2.run();
+    cb(newValue, oldValue);
+    oldValue = newValue;
+  }
+  function stop() {
+    effect2.stop();
+  }
+  const effect2 = new ReactiveEffect(getter);
+  effect2.scheduler = job;
+  if (immediate) {
+    job();
+  } else {
+    oldValue = effect2.run();
+  }
+  return () => {
+    stop();
+  };
+}
+function traverse(value, depth = Infinity, seen = /* @__PURE__ */ new Set()) {
+  if (!isObject(value) || depth <= 0) {
+    return value;
+  }
+  if (seen.has(value)) {
+    return value;
+  }
+  seen.add(value);
+  depth--;
+  for (const key in value) {
+    traverse(value[key], depth, seen);
+  }
+  return value;
+}
 export {
   ReactiveEffect,
   ReactiveFlags,
@@ -375,5 +448,6 @@ export {
   ref,
   setActiveSub,
   trackRef,
-  triggerRef
+  triggerRef,
+  watch
 };

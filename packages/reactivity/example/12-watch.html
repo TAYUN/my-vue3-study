@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      import { ref, watch } from '../dist/reactivity.esm.js'
+
+      const count = ref(0)
+
+      watch(count, (newVal, oldVal) => {
+        console.log('newVal, oldVal', newVal, oldVal)
+      })
+
+      setTimeout(() => {
+        count.value = 1
+      }, 1000)
+    </script>
+
+    <script type="module">
+      // 停止监听 stop 函数
+      import { ref, watch } from '../dist/reactivity.esm.js'
+
+      const count1 = ref(0)
+
+      const stop = watch(count1, (newVal, oldVal) => {
+        console.log('newVal1, oldVal1', newVal, oldVal)
+      })
+
+      setTimeout(() => {
+        count1.value = 1
+        setTimeout(() => {
+          stop()
+          count1.value = 2
+        }, 1000)
+      }, 1000)
+    </script>
+
+    <script type="module">
+      import { ref, watch } from '../dist/reactivity.esm.js'
+
+      const state3 = ref({
+        a: {
+          b: 1,
+          c: {
+            d: 1,
+          },
+        },
+      })
+
+      watch(
+        state3,
+        (newVal, oldVal) => {
+          console.log('newVal3, oldVal3', newVal, oldVal)
+        },
+        { deep: 2 },
+      )
+
+      setTimeout(() => {
+        state3.value.a.c.d = 2
+        console.log('更新了')
+      }, 1000)
+    </script>
+  </body>
+</html>
