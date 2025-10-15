@@ -53,6 +53,7 @@ export function link(dep, sub) {
 
   let newLink: Link
 
+  // todo 疑问：为什么每次拿第一个节点刚好就是我想要复用的节点
   // 复用节点 （优化重复删除创建）
   if (linkPool) {
     /**
