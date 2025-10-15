@@ -14,10 +14,16 @@ export class ReactiveEffect {
   tracking = false // 是否正在执行（收集中）
 
   dirty = false // 是否需要重新计算（用于控制入队）
+  
+  active = true // 是否启用监听
 
   constructor(public fn: Function) {}
 
   run() {
+    if (!this.active) {
+      //todo 为什么要返回 this.fn() 呢？
+      return this.fn() 
+    }
     // 先将当前的 Effect 存储，用于处理嵌套逻辑
     const prevSub = activeSub
     // 每次执行 fn 之前，把 this 实例放到 activeSub 上
@@ -45,6 +51,14 @@ export class ReactiveEffect {
    */
   scheduler() {
     this.run()
+  }
+
+  stop() {
+    if(this.active){
+      startTrack(this)
+      endTrack(this)
+      this.active = false
+    }
   }
 }
 
