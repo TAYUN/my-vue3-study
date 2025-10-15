@@ -1,13 +1,10 @@
-import { hasChange, isObject } from '@vue/shared'
-import { activeSub } from './effect'
-import { Link, link, propagate } from './system'
-import { isRef } from './ref'
+import { isObject } from '@vue/shared'
+
 import { mutableHandlers } from './baseHandlers'
 
 export function reactive(target) {
   return createReactiveObject(target)
 }
-const targetMap = new WeakMap()
 
 /**
  * S情况1：
