@@ -169,8 +169,8 @@ function effect(fn, options) {
 }
 
 // packages/shared/src/index.ts
-function isObject(obj) {
-  return obj && typeof obj === "object" && !Array.isArray(obj) && obj !== null;
+function isObject(value) {
+  return typeof value === "object" && value !== null;
 }
 function hasChange(newValue, oldValue) {
   return !Object.is(newValue, oldValue);
@@ -204,9 +204,19 @@ function track(target, key) {
 function trigger(target, key) {
   const depsMap = targetMap.get(target);
   if (!depsMap) return;
-  const dep = depsMap.get(key);
-  if (!dep) return;
-  if (dep.subs) {
+  const targetIsArray = Array.isArray(target);
+  if (targetIsArray && key === "length") {
+    const newLength = target.length;
+    depsMap.forEach((dep, depKey) => {
+      if (depKey === "length" || depKey >= newLength) {
+        propagate(dep.subs);
+      }
+    });
+  } else {
+    let dep = depsMap.get(key);
+    if (!dep) {
+      return;
+    }
     propagate(dep.subs);
   }
 }
@@ -226,6 +236,8 @@ var mutableHandlers = {
   },
   set(target, key, newValue, receiver) {
     const oldValue = target[key];
+    const targetIsArray = Array.isArray(target);
+    const oldLength = targetIsArray ? target.length : 0;
     if (isRef(oldValue) && !isRef(newValue)) {
       oldValue.value = newValue;
       return true;
@@ -233,6 +245,10 @@ var mutableHandlers = {
     const res = Reflect.set(target, key, newValue, receiver);
     if (hasChange(newValue, oldValue)) {
       trigger(target, key);
+    }
+    const newLength = targetIsArray ? target.length : 0;
+    if (targetIsArray && newLength !== oldLength && key !== "length") {
+      trigger(target, "length");
     }
     return res;
   }
