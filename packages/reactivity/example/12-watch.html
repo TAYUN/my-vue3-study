@@ -4,9 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Document</title>
+    <style>
+      #app,
+      #div {
+        width: 100px;
+        height: 100px;
+        background-color: red;
+        margin-bottom: 10px;
+      }
+      #div {
+        background-color: blue;
+      }
+    </style>
   </head>
   <body>
     <div id="app"></div>
+    <div id="div"></div>
+    <button id="button">按钮</button>
     <script type="module">
       import { ref, watch } from '../dist/reactivity.esm.js'
 
@@ -64,6 +78,40 @@
         state3.value.a.c.d = 2
         console.log('更新了')
       }, 1000)
+    </script>
+
+    <script type="module">
+      // import {
+      //   ref,
+      //   watch,
+      // } from '../../../node_modules/vue/dist/vue.esm-browser.js'
+      import { ref, watch } from '../dist/reactivity.esm.js'
+
+
+      const flag = ref(true)
+
+      watch(
+        flag,
+        (newVal, oldVal, onCleanup) => {
+          const dom = newVal ? app : div
+
+          function handler() {
+            console.log(newVal ? '点击 app' : '点击 div')
+          }
+
+          dom.addEventListener('click', handler)
+
+          // 注册清理函数
+          onCleanup(() => {
+            dom.removeEventListener('click', handler)
+          })
+        },
+        { immediate: true },
+      )
+
+      button.onclick = () => {
+        flag.value = !flag.value
+      }
     </script>
   </body>
 </html>

@@ -31,11 +31,22 @@ export function watch(source, cb, options) {
     const depth = deep === true ? Infinity : deep
     getter = () => traverse(baseGetter(), depth)
   }
+  
+  // 副作用清理
+  let cleanup = null
+  function onCleanup(cb) {
+    cleanup = cb
+  }
 
   function job() {
+    if (cleanup) {
+      // 执行回调前 清理上一次的 副作用函数 side effect
+      cleanup()
+      cleanup = null
+    }
     // 运行 effect 得到新值，不能直接执行 getter，否则依赖不会收集
     const newValue = effect.run()
-    cb(newValue, oldValue)
+    cb(newValue, oldValue, onCleanup)
     oldValue = newValue
   }
 
