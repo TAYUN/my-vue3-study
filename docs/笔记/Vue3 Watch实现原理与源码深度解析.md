@@ -43,11 +43,23 @@ export function watch(source, cb, options) {
   
   let oldValue
   
+  // 副作用清理机制
+  let cleanup = null
+  function onCleanup(cb) {
+    cleanup = cb
+  }
+  
   // 调度函数：数据变化时的执行逻辑
   function job() {
-    const newValue = effect.run()  // 获取新值
-    cb(newValue, oldValue)         // 执行用户回调
-    oldValue = newValue            // 更新旧值
+    if (cleanup) {
+      // 执行回调前清理上一次的副作用函数
+      cleanup()
+      cleanup = null
+    }
+    
+    const newValue = effect.run()        // 获取新值
+    cb(newValue, oldValue, onCleanup)    // 执行用户回调，传入 onCleanup
+    oldValue = newValue                  // 更新旧值
   }
   
   // 创建 ReactiveEffect 实例
@@ -148,7 +160,137 @@ if(once) {
 - 在执行完用户回调后，立即调用 `stop()` 停止监听
 - 确保回调只执行一次
 
-### 3. deep - 深度监听
+### 3. onCleanup - 副作用清理
+
+`onCleanup` 是 `watch` 回调函数的第三个参数，用于注册清理函数，解决副作用冲突和资源泄漏问题。
+
+#### 问题场景
+
+当监听的数据在短时间内多次变更时，可能出现以下问题：
+
+1. **资源泄漏**：事件监听器、定时器等未被正确清理
+2. **异步竞争**：旧的异步操作结果覆盖新的操作结果
+
+```html
+<!-- 问题示例：事件监听器泄漏 -->
+<script>
+const flag = ref(true)
+
+watch(flag, (newVal) => {
+  const dom = newVal ? app : div
+  
+  function handler() {
+    console.log(newVal ? '点击 app' : '点击 div')
+  }
+  
+  dom.addEventListener('click', handler)
+  // 问题：旧的事件监听器没有被移除！
+})
+</script>
+```
+
+#### 解决方案
+
+```typescript
+watch(flag, (newVal, oldVal, onCleanup) => {
+  const dom = newVal ? app : div
+  
+  function handler() {
+    console.log(newVal ? '点击 app' : '点击 div')
+  }
+  
+  dom.addEventListener('click', handler)
+  
+  // 注册清理函数
+  onCleanup(() => {
+    dom.removeEventListener('click', handler)
+  })
+}, { immediate: true })
+```
+
+#### 实现原理
+
+```typescript
+// 副作用清理机制
+let cleanup = null
+
+function onCleanup(cb) {
+  cleanup = cb  // 保存清理函数
+}
+
+function job() {
+  if (cleanup) {
+    // 执行新回调前，先清理上一次的副作用
+    cleanup()
+    cleanup = null
+  }
+  
+  const newValue = effect.run()
+  cb(newValue, oldValue, onCleanup)  // 传入 onCleanup 函数
+  oldValue = newValue
+}
+```
+
+#### 执行时序
+
+1. **首次执行**：执行回调，可能注册清理函数
+2. **数据变化**：
+   - 检查是否有待清理的函数
+   - 如果有，先执行清理函数
+   - 然后执行新的回调
+   - 新回调可能注册新的清理函数
+
+#### 典型应用场景
+
+**1. 事件监听器清理**
+```typescript
+watch(activeElement, (newEl, oldEl, onCleanup) => {
+  function handleClick() { /* ... */ }
+  
+  newEl.addEventListener('click', handleClick)
+  
+  onCleanup(() => {
+    newEl.removeEventListener('click', handleClick)
+  })
+})
+```
+
+**2. 定时器清理**
+```typescript
+watch(interval, (newInterval, oldInterval, onCleanup) => {
+  const timer = setInterval(() => {
+    // 定时任务
+  }, newInterval)
+  
+  onCleanup(() => {
+    clearInterval(timer)
+  })
+})
+```
+
+**3. 异步请求取消**
+```typescript
+watch(searchQuery, async (query, oldQuery, onCleanup) => {
+  const controller = new AbortController()
+  
+  onCleanup(() => {
+    controller.abort()  // 取消上一次请求
+  })
+  
+  try {
+    const result = await fetch(`/api/search?q=${query}`, {
+      signal: controller.signal
+    })
+    // 处理结果
+  } catch (error) {
+    if (error.name !== 'AbortError') {
+      // 处理其他错误
+    }
+  }
+})
+```
+
+### 4. deep - 深度监听
 
 #### 基础深度监听
 
@@ -203,7 +345,7 @@ function traverse(value, depth = Infinity, seen = new Set()) {
 - `deep: 2` → 只监听到第二层
 - 超出指定层级的属性变化不会触发回调
 
-### 4. 多种 Source 类型处理
+### 5. 多种 Source 类型处理
 
 ```typescript
 // 完整的 source 类型判断逻辑
@@ -247,34 +389,56 @@ if(isRef(source)) {
 ## 📊 完整执行流程示例
 
 ```typescript
-// 示例代码
-const count = ref(0)
-const stop = watch(count, (newVal, oldVal) => {
-  console.log('count changed:', newVal, oldVal)
+// 示例代码：包含 onCleanup 的完整示例
+const flag = ref(true)
+const stop = watch(flag, (newVal, oldVal, onCleanup) => {
+  const dom = newVal ? app : div
+  
+  function handler() {
+    console.log(newVal ? '点击 app' : '点击 div')
+  }
+  
+  dom.addEventListener('click', handler)
+  
+  // 注册清理函数
+  onCleanup(() => {
+    dom.removeEventListener('click', handler)
+    console.log('清理了事件监听器')
+  })
 }, { immediate: true })
 
 // 执行流程分析
 ```
 
 ### 初始化阶段
-1. **创建 getter**：`() => count.value`
+1. **创建 getter**：`() => flag.value`
 2. **创建 ReactiveEffect**：传入 getter 函数
 3. **设置调度器**：`effect.scheduler = job`
 4. **immediate 执行**：立即调用 `job()`
-   - `newValue = effect.run()` → 0
-   - `cb(0, undefined)` → 输出 "count changed: 0 undefined"
-   - `oldValue = 0`
+   - `cleanup` 为 `null`，跳过清理
+   - `newValue = effect.run()` → `true`
+   - `cb(true, undefined, onCleanup)` → 执行回调
+     - 在 `app` 元素上添加事件监听器
+     - 调用 `onCleanup()` 注册清理函数
+   - `oldValue = true`
 
 ### 数据更新阶段
 ```typescript
-count.value = 1  // 触发更新
+flag.value = false  // 触发更新
 ```
 
-1. **触发依赖**：`count.value` 的 setter 被调用
+1. **触发依赖**：`flag.value` 的 setter 被调用
 2. **执行调度器**：调用 `job` 函数而不是重新执行 effect
-3. **获取新值**：`effect.run()` → 1
-4. **执行回调**：`cb(1, 0)` → 输出 "count changed: 1 0"
-5. **更新旧值**：`oldValue = 1`
+3. **清理副作用**：
+   - 检查 `cleanup` 不为 `null`
+   - 执行 `cleanup()` → 移除 `app` 上的事件监听器
+   - 输出 "清理了事件监听器"
+   - 重置 `cleanup = null`
+4. **获取新值**：`effect.run()` → `false`
+5. **执行回调**：`cb(false, true, onCleanup)` → 执行新回调
+   - 在 `div` 元素上添加事件监听器
+   - 调用 `onCleanup()` 注册新的清理函数
+6. **更新旧值**：`oldValue = false`
 
 ### 停止监听
 ```typescript
@@ -351,14 +515,54 @@ watch(count, (newVal) => {
 })
 ```
 
+### 5. 正确使用 onCleanup 清理副作用
+```typescript
+// ✅ 推荐：清理事件监听器
+watch(element, (newEl, oldEl, onCleanup) => {
+  const handler = () => { /* ... */ }
+  newEl.addEventListener('click', handler)
+  
+  onCleanup(() => {
+    newEl.removeEventListener('click', handler)
+  })
+})
+
+// ✅ 推荐：清理定时器
+watch(delay, (newDelay, oldDelay, onCleanup) => {
+  const timer = setTimeout(() => { /* ... */ }, newDelay)
+  
+  onCleanup(() => {
+    clearTimeout(timer)
+  })
+})
+
+// ✅ 推荐：取消异步请求
+watch(query, async (newQuery, oldQuery, onCleanup) => {
+  const controller = new AbortController()
+  
+  onCleanup(() => {
+    controller.abort()
+  })
+  
+  try {
+    await fetch(`/api?q=${newQuery}`, { signal: controller.signal })
+  } catch (error) {
+    if (error.name !== 'AbortError') {
+      console.error(error)
+    }
+  }
+})
+```
+
 ## 🎉 总结
 
 Vue3 的 `watch` 实现展现了响应式系统的精妙设计：
 
 1. **架构清晰**：基于 `ReactiveEffect` 和调度器的设计，职责分离明确
 2. **功能完备**：支持多种监听源类型和丰富的配置选项
-3. **性能优化**：惰性计算、精确依赖收集、层级控制等优化策略
-4. **易于使用**：简洁的 API 设计，强大的功能支持
+3. **副作用管理**：通过 `onCleanup` 机制优雅处理资源清理和异步竞争问题
+4. **性能优化**：惰性计算、精确依赖收集、层级控制等优化策略
+5. **易于使用**：简洁的 API 设计，强大的功能支持
 
 通过深入理解 `watch` 的实现原理，我们可以更好地：
 - 选择合适的监听策略
