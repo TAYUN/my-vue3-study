@@ -26,6 +26,9 @@ export const mutableHandlers = {
     // S情况三：Reactive 对象重复赋相同数值
     const oldValue = target[key]
 
+    const targetIsArray = Array.isArray(target)
+    const oldLength = targetIsArray ? target.length : 0
+
     // S情况五2：将包含 ref 的 Reactive 对象解构并保持同步
     // 若把 state.a 直接换成一个新的 ref，原有变量 a 不应被动同步（这是预期的非同步）
     /**
@@ -45,6 +48,15 @@ export const mutableHandlers = {
     if (hasChange(newValue, oldValue)) {
       // 仅当值确实变化时才触发更新
       trigger(target, key)
+    }
+
+    const newLength = targetIsArray ? target.length : 0
+
+    if (targetIsArray && newLength !== oldLength && key !== 'length') {
+      /**
+       * 如果更新之前和更新之后，length 不一样，代表隐式更新了，手动触发
+       */
+      trigger(target, 'length')
     }
     return res
   },
