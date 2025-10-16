@@ -56,6 +56,16 @@
       setTimeout(() => {
         state6.a.b = 1
       }, 1000)
+
+      
+      const array = reactive(['a', 'b', 'c', 'd'])
+      effect(() => {
+        console.log(array[2]) // c
+      })
+      setTimeout(() => {
+        
+        array[2] = 444
+      }, 1000)
     </script>
   </body>
 </html>
