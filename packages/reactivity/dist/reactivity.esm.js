@@ -402,9 +402,17 @@ function watch(source, cb, options) {
     const depth = deep === true ? Infinity : deep;
     getter = () => traverse(baseGetter(), depth);
   }
+  let cleanup = null;
+  function onCleanup(cb2) {
+    cleanup = cb2;
+  }
   function job() {
+    if (cleanup) {
+      cleanup();
+      cleanup = null;
+    }
     const newValue = effect2.run();
-    cb(newValue, oldValue);
+    cb(newValue, oldValue, onCleanup);
     oldValue = newValue;
   }
   function stop() {
