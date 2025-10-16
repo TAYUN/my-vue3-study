@@ -24,7 +24,6 @@
       const phone = ref('phone')
 
       const e = effect(() => {
-        debugger
         console.count('effect')
         if (count.value === 0) {
           app.innerHTML = name.value
