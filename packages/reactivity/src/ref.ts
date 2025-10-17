@@ -60,3 +60,57 @@ export function trackRef(dep) {
 export function triggerRef(dep) {
   propagate(dep.subs)
 }
+
+class ObjectRefImpl {
+  [ReactiveFlags.IS_REF] = true
+  constructor(
+    public _object,
+    public _key,
+  ) {}
+  get value() {
+    return this._object[this._key]
+  }
+  set value(newValue) {
+    this._object[this._key] = newValue
+  }
+}
+export function toRef(target, key) {
+  return new ObjectRefImpl(target, key)
+}
+
+export function toRefs(object) {
+  const res = {}
+  for (const key in object) {
+    res[key] = toRef(object, key)
+  }
+  return res
+}
+
+export function unref(ref) {
+  return isRef(ref) ? ref.value : ref
+}
+
+export function proxyRefs(target) {
+  return new Proxy(target, {
+    get(target, key, receiver) {
+      const res = Reflect.get(target, key, receiver)
+      /**
+       * 自动解包
+       */
+      return unref(res)
+    },
+    set(target, key, newValue, receiver) {
+      if (isRef(target[key]) && !isRef(newValue)) {
+        // 若把 state.a 直接换成一个新的 ref，原有变量 a 不应被动同步（这是预期的非同步）
+        /**
+         * const a = ref(0)
+         * target = { a }
+         * 当执行 target.a = 1 时，本质上是 a.value = 1
+         */
+        target[key].value = newValue
+        return true
+      }
+      return Reflect.set(target, key, newValue, receiver)
+    },
+  })
+}
