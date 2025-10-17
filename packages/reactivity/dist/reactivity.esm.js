@@ -324,6 +324,47 @@ function trackRef(dep) {
 function triggerRef(dep) {
   propagate(dep.subs);
 }
+var ObjectRefImpl = class {
+  constructor(_object, _key) {
+    this._object = _object;
+    this._key = _key;
+  }
+  ["__v_isRef" /* IS_REF */] = true;
+  get value() {
+    return this._object[this._key];
+  }
+  set value(newValue) {
+    this._object[this._key] = newValue;
+  }
+};
+function toRef(target, key) {
+  return new ObjectRefImpl(target, key);
+}
+function toRefs(object) {
+  const res = {};
+  for (const key in object) {
+    res[key] = toRef(object, key);
+  }
+  return res;
+}
+function unref(ref2) {
+  return isRef(ref2) ? ref2.value : ref2;
+}
+function proxyRefs(target) {
+  return new Proxy(target, {
+    get(target2, key, receiver) {
+      const res = Reflect.get(target2, key, receiver);
+      return unref(res);
+    },
+    set(target2, key, newValue, receiver) {
+      if (isRef(target2[key]) && !isRef(newValue)) {
+        target2[key].value = newValue;
+        return true;
+      }
+      return Reflect.set(target2, key, newValue, receiver);
+    }
+  });
+}
 
 // packages/reactivity/src/computed.ts
 function computed(getterOptions) {
@@ -468,10 +509,14 @@ export {
   effect,
   isReactive,
   isRef,
+  proxyRefs,
   reactive,
   ref,
   setActiveSub,
+  toRef,
+  toRefs,
   trackRef,
   triggerRef,
+  unref,
   watch
 };
