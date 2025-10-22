@@ -555,8 +555,87 @@ function createRenderer(options) {
   };
 }
 
+// packages/runtime-dom/src/modules/patchClass.ts
+function patchClass(el, value) {
+  if (value == void 0) {
+    el.removeAttribute("class");
+  } else {
+    el.className = value;
+  }
+}
+
+// packages/runtime-dom/src/modules/patchStyle.ts
+function patchStyle(el, prevValue, nextValue) {
+  const style = el.style;
+  if (nextValue) {
+    for (const key in nextValue) {
+      style[key] = nextValue[key];
+    }
+  }
+  if (prevValue) {
+    for (const key in prevValue) {
+      if (nextValue?.[key] == null) {
+        style[key] = null;
+      }
+    }
+  }
+}
+
+// packages/runtime-dom/src/modules/events.ts
+function createInvoker(value) {
+  const invoker = (e) => {
+    invoker.value(e);
+  };
+  invoker.value = value;
+  return invoker;
+}
+var veiKey = Symbol("_vei");
+function patchEvent(el, rawName, nextValue) {
+  const name = rawName.slice(2).toLowerCase();
+  const invokers = el[veiKey] ??= {};
+  const existingInvoker = invokers[rawName];
+  if (nextValue) {
+    if (existingInvoker) {
+      existingInvoker.value = nextValue;
+      return;
+    }
+    const invoker = createInvoker(nextValue);
+    invokers[rawName] = invoker;
+    el.addEventListener(name, invoker);
+  } else {
+    if (existingInvoker) {
+      el.removeEventListener(name, existingInvoker);
+      invokers[rawName] = void 0;
+    }
+  }
+}
+
+// packages/runtime-dom/src/modules/patchAttr.ts
+function patchAttr(el, key, value) {
+  if (value == void 0) {
+    el.removeAttribute(key);
+  } else {
+    el.setAttribute(key, value);
+  }
+}
+
+// packages/runtime-dom/src/patchProp.ts
+function patchProp(el, key, prevValue, nextValue) {
+  if (key === "class") {
+    return patchClass(el, nextValue);
+  }
+  if (key === "style") {
+    return patchStyle(el, prevValue, nextValue);
+  }
+  if (/^on[A-Z]/.test(key)) {
+    return patchEvent(el, key, nextValue);
+  }
+  patchAttr(el, key, nextValue);
+}
+
 // packages/runtime-dom/src/index.ts
-var renderer = createRenderer(nodeOps);
+var renderOptions = { patchProp, ...nodeOps };
+var renderer = createRenderer(renderOptions);
 function render(vnode, container) {
   renderer.render(vnode, container);
 }
@@ -574,6 +653,7 @@ export {
   reactive,
   ref,
   render,
+  renderOptions,
   setActiveSub,
   toRef,
   toRefs,
