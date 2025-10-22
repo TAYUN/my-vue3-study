@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <script type="module">
+      import {
+        ref,
+        toRefs,
+        effect,
+        reactive,
+        toRef,
+        proxyRefs,
+      } from '../dist/reactivity.esm.js'
+
+      const state = reactive({ name: '张三', age: 18 })
+
+      const setupStateRefs = {
+        ...toRefs(state),
+        // name: ObjectRefImpl,
+        // age: ObjectRefImpl,
+      }
+
+      const setupState = proxyRefs({
+        ...toRefs(state),
+        // name: ObjectRefImpl,
+        // age: ObjectRefImpl,
+      })
+
+      effect(() => {
+        console.log('setupStateRefs.age.value:', setupStateRefs.age.value)
+      })
+      effect(() => {
+        console.log('setupState.age:', setupState.age)
+      })
+
+      // effect(() => {
+      //   console.log('state.age:', state.age)
+      // })
+
+      setTimeout(() => {
+        state.age++
+      }, 1000)
+      // setTimeout(() => {
+      //   setupState.age++
+      // }, 2000)
+    </script>
+  </body>
+</html>

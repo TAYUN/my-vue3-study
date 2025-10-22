@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <script type="module">
+      import {
+        ref,
+        toRefs,
+        effect,
+        reactive,
+        toRef,
+      } from '../dist/reactivity.esm.js'
+
+      const state = reactive({ name: '张三', age: 18 })
+
+      const { name, age } = toRefs(state)
+
+      effect(() => {
+        console.log(age.value)
+      })
+
+      setTimeout(() => {
+        age.value++
+      }, 1000)
+    </script>
+  </body>
+</html>

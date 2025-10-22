@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <script type="module">
+      // import {
+      //   ref,
+      //   effect,
+      // } from '../../../node_modules/vue/dist/vue.esm-browser.js'
+      import { ref, effect } from '../dist/reactivity.esm.js'
+
+      // 出版社（存储数据 + 管理订阅者）
+      const count = ref(0)
+
+      // 路人甲订阅（当他“阅读”杂志时，自动成为订阅者）
+      effect(() => {
+        console.log('count.value ==>', count.value) // 阅读杂志
+      })
+
+      // 出版社发行新版杂志
+      setTimeout(() => {
+        count.value++ // 新版发行，自动通知所有订阅者
+      }, 1000)
+    </script>
+  </body>
+</html>

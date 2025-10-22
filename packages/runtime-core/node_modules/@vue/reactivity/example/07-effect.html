@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <button id="btn">flag</button>
+    <button id="nameBtn">nameBtn</button>
+    <button id="ageBtn">ageBtn</button>
+    <script type="module">
+      // import {
+      //   ref,
+      //   effect,
+      // } from '../../../node_modules/vue/dist/vue.esm-browser.js'
+      import { ref, effect } from '../dist/reactivity.esm.js'
+
+      const flag = ref(false)
+      const name = ref('name')
+      const age = ref(18)
+      // 情况1：
+      const e = effect(() => {
+        console.count('effect')
+        if (flag.value) {
+          app.innerHTML = name.value
+        } else {
+          app.innerHTML = age.value
+        }
+      })
+      //...
+      nameBtn.onclick = () => {
+        name.value = '姓名' + Math.random()
+        // console.dir(e.effect) // 访问挂载在 runner 上的 effect 实例
+      }
+      ageBtn.onclick = () => {
+        age.value++
+      }
+
+      btn.onclick = () => {
+        flag.value = !flag.value
+      }
+
+      // 情况2：
+      // let count = 0
+
+      // effect(() => {
+      //   console.count('effect')
+
+      //   if (count > 0) return
+      //   count++
+
+      //   if (flag.value) {
+      //     app.innerHTML = name.value
+      //   } else {
+      //     app.innerHTML = age.value
+      //   }
+      // })
+    </script>
+  </body>
+</html>

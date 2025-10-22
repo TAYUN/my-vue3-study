@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Document</title>
+    <style>
+      body {
+        padding: 150px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      // import { ref, effect } from '../../../node_modules/vue/dist/vue.esm-browser.js'
+      import { ref, effect } from '../dist/reactivity.esm.js'
+
+      const count = ref(0)
+
+      effect(() => {
+        // 在打造响应式系统时，一个容易遇到的状况是，effect 在执行期间同时“读取”又“写入”同一个依赖，这会造成自我触发 (self-trigger)。
+        // Vue 3 使用 tracking 标记来防止同一个 effect 在其自身执行期间，被重复加入到更新队列
+        console.log(count.value++) // 正确的写法应该是 count.value++，但这里为了演示问题
+      })
+    </script>
+  </body>
+</html>

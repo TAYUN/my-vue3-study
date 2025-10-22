@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <button id="btn">按钮</button>
+    <script type="module">
+      // import {
+      //   ref,
+      //   effect,
+      // } from '../../../node_modules/vue/dist/vue.esm-browser.js'
+      import { ref, effect } from '../dist/reactivity.esm.js'
+
+      const flag = ref(false)
+      const count = ref(0)
+
+      // 多重依赖之指数触发重现
+      effect(() => {
+        flag.value
+        count.value
+        console.log('effect')
+      })
+
+      btn.onclick = () => {
+        count.value++
+      }
+
+    </script>
+  </body>
+</html>

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>响应式对数组的特殊属性length处理</title>
+    <style>
+      body {
+        padding: 150px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      // import { reactive, effect } from '../../../node_modules/vue/dist/vue.esm-browser.js'
+
+      import { ref, reactive, effect } from '../dist/reactivity.esm.js'
+      const array = reactive(['a', 'b', 'c', 'd'])
+
+      /**
+       * 一开始：['a', 'b', 'c', 'd'] length = 4
+       * 更新后：['a', 'b'] length = 2
+       */
+      effect(() => {
+        console.log(array[2]) // c
+      })
+
+      setTimeout(() => {
+        array[2] = 'e'
+      }, 1000)
+      setTimeout(() => {
+        array.push('f') // 不会触发更新，array[2]没有发生变化
+        array.length = 2 // 显式修改length，会触发更新，因为array[2]访问超过了数组长度2.
+      }, 1200)
+    </script>
+    <script type="module">
+      // import { reactive, effect } from '../../../node_modules/vue/dist/vue.esm-browser.js'
+
+      import { ref, reactive, effect } from '../dist/reactivity.esm.js'
+      const array2 = reactive(['a', 'b', 'c', 'd'])
+
+      /**
+       * 一开始：['a', 'b', 'c', 'd'] length = 4
+       * 更新后：['a', 'b'] length = 2
+       */
+      effect(() => {
+        console.log('array.length:', array2.length)
+      })
+
+      setTimeout(() => {
+        array2.push('f') // 隐式触发更新length，同时array.length已经被收集到依赖中，所以会触发effect重新执行
+      }, 4000)
+    </script>
+  </body>
+</html>

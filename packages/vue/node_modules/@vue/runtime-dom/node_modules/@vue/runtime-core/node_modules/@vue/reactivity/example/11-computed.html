@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Document</title>
+    <style>
+      body {
+        padding: 150px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      // import {
+      //   ref,
+      //   computed,
+      //   effect,
+      // } from '../../../node_modules/vue/dist/vue.esm-browser.js'
+      import { ref, computed, effect } from '../dist/reactivity.esm.js'
+      const count = ref(0)
+
+      const c = computed(() => {
+        console.count('computed')
+        return count.value + 1
+      })
+
+      // effect(() => {
+      //   console.log(c.value)
+      // })
+
+      setTimeout(() => {
+        console.log(c.value)
+        console.log(c.value)
+        console.log(c.value)
+        count.value++
+
+      }, 1000)
+
+    </script>
+  </body>
+</html>
