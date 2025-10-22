@@ -5,7 +5,7 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "dev": "node scripts/dev.js reactivity --format esm",
+    "dev": "node scripts/dev.js --format esm",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
