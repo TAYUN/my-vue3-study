@@ -211,7 +211,7 @@ function effect(fn, options) {
   return runner;
 }
 
-// packages/shared/src/index.ts
+// packages/shared/src/utils.ts
 function isObject(value) {
   return typeof value === "object" && value !== null;
 }
@@ -221,6 +221,7 @@ function hasChange(newValue, oldValue) {
 function isFunction(value) {
   return typeof value === "function";
 }
+var isArray = Array.isArray;
 
 // packages/reactivity/src/dep.ts
 var Dep = class {
@@ -555,6 +556,47 @@ function createRenderer(options) {
   };
 }
 
+// packages/runtime-core/src/vnode.ts
+function isVNode(value) {
+  return value?.__v_isVNode;
+}
+function createVNode(type, props, children) {
+  const vnode = {
+    __v_isVNode: true,
+    type,
+    props,
+    children,
+    key: props?.key,
+    el: null,
+    shapeFlag: 9
+  };
+  return vnode;
+}
+
+// packages/runtime-core/src/h.ts
+function h(type, propsOrChildren, children) {
+  let l = arguments.length;
+  if (l === 2) {
+    if (isArray(propsOrChildren)) {
+      return createVNode(type, null, propsOrChildren);
+    }
+    if (isObject(propsOrChildren)) {
+      if (isVNode(propsOrChildren)) {
+        return createVNode(type, null, [propsOrChildren]);
+      }
+      return createVNode(type, propsOrChildren, children);
+    }
+    return createVNode(type, null, propsOrChildren);
+  } else {
+    if (l > 3) {
+      children = [...arguments].slice(2);
+    } else if (isVNode(children)) {
+      children = [children];
+    }
+    return createVNode(type, propsOrChildren, children);
+  }
+}
+
 // packages/runtime-dom/src/modules/patchClass.ts
 function patchClass(el, value) {
   if (value == void 0) {
@@ -646,9 +688,12 @@ export {
   computed,
   createReactiveObject,
   createRenderer,
+  createVNode,
   effect,
+  h,
   isReactive,
   isRef,
+  isVNode,
   proxyRefs,
   reactive,
   ref,
