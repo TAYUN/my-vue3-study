@@ -13,7 +13,14 @@ import {
 export function isVNode(value) {
   return value?.__v_isVNode
 }
-
+/**
+ * 判断两个虚拟节点是不是相同类型
+ * @param n1 
+ * @param n2 
+ */
+export function isSameVNodeType(n1, n2) {
+  return n1.type === n2.type && n1.key === n2.key
+}
 /**
  * 创建虚拟节点的底层方法
  * @param type 节点类型
