@@ -1,10 +1,23 @@
 import {
   isArray,
   isFunction,
+  isNumber,
   isObject,
   isString,
   ShapeFlags,
 } from '@vue/shared'
+
+/**
+ * 文本节点标记
+ */
+export const Text = Symbol('v-text')
+
+export function normalizeVNode(vnode){
+  if(isString(vnode) || isNumber(vnode)){
+    return createVNode(Text, null, String(vnode))
+  }
+  return vnode
+}
 
 /**
  * 判断是不是一个虚拟节点，根据 __v_isVNode 属性
@@ -15,8 +28,8 @@ export function isVNode(value) {
 }
 /**
  * 判断两个虚拟节点是不是相同类型
- * @param n1 
- * @param n2 
+ * @param n1
+ * @param n2
  */
 export function isSameVNodeType(n1, n2) {
   return n1.type === n2.type && n1.key === n2.key

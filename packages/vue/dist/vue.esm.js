@@ -224,6 +224,9 @@ function isFunction(value) {
 function isString(value) {
   return typeof value === "string";
 }
+function isNumber(value) {
+  return typeof value === "number";
+}
 var isArray = Array.isArray;
 
 // packages/reactivity/src/dep.ts
@@ -549,6 +552,13 @@ function traverse(value, depth = Infinity, seen = /* @__PURE__ */ new Set()) {
 }
 
 // packages/runtime-core/src/vnode.ts
+var Text2 = Symbol("v-text");
+function normalizeVNode(vnode) {
+  if (isString(vnode) || isNumber(vnode)) {
+    return createVNode(Text2, null, String(vnode));
+  }
+  return vnode;
+}
 function isVNode(value) {
   return value?.__v_isVNode;
 }
@@ -577,13 +587,57 @@ function createVNode(type, props, children) {
   return vnode;
 }
 
+// packages/runtime-core/src/h.ts
+function h(type, propsOrChildren, children) {
+  let l = arguments.length;
+  if (l === 2) {
+    if (isArray(propsOrChildren)) {
+      return createVNode(type, null, propsOrChildren);
+    }
+    if (isObject(propsOrChildren)) {
+      if (isVNode(propsOrChildren)) {
+        return createVNode(type, null, [propsOrChildren]);
+      }
+      return createVNode(type, propsOrChildren, children);
+    }
+    return createVNode(type, null, propsOrChildren);
+  } else {
+    if (l > 3) {
+      children = [...arguments].slice(2);
+    } else if (isVNode(children)) {
+      children = [children];
+    }
+    return createVNode(type, propsOrChildren, children);
+  }
+}
+
+// packages/runtime-core/src/apiCreateApp.ts
+function createAppAPI(render2) {
+  return function createApp2(rootComponent, rootProps) {
+    const app = {
+      _container: null,
+      mount(container) {
+        const vnode = h(rootComponent, rootProps);
+        render2(vnode, container);
+        app._container = container;
+      },
+      unmount() {
+        render2(null, app._container);
+      }
+    };
+    return app;
+  };
+}
+
 // packages/runtime-core/src/renderer.ts
 function createRenderer(options) {
   const {
     createElement: hostCreateElement,
     setElementText: hostSetElementText,
     insert: hostInsert,
+    setText: hostSetText,
     remove: hostRemove,
+    createText: hostCreateText,
     patchProp: hostPatchProp
   } = options;
   const render2 = (vnode, container) => {
@@ -601,7 +655,7 @@ function createRenderer(options) {
     };
     const mountChildren = (children, el) => {
       for (let i = 0; i < children.length; i++) {
-        const child = children[i];
+        const child = children[i] = normalizeVNode(children[i]);
         patch(null, child, el);
       }
     };
@@ -659,7 +713,7 @@ function createRenderer(options) {
       let e2 = c2.length - 1;
       while (i <= e1 && i <= e2) {
         const n1 = c1[i];
-        const n2 = c2[i];
+        const n2 = c2[i] = normalizeVNode(c2[i]);
         if (isSameVNodeType(n1, n2)) {
           patch(n1, n2, container2);
         } else {
@@ -669,7 +723,7 @@ function createRenderer(options) {
       }
       while (i <= e1 && i <= e2) {
         const n1 = c1[e1];
-        const n2 = c2[e2];
+        const n2 = c2[e2] = normalizeVNode(c2[e2]);
         if (isSameVNodeType(n1, n2)) {
           patch(n1, n2, container2);
         } else {
@@ -681,9 +735,8 @@ function createRenderer(options) {
       if (i > e1) {
         const nextPos = e2 + 1;
         const anchor = nextPos < c2.length ? c2[nextPos].el : null;
-        console.log(anchor);
         while (i <= e2) {
-          patch(null, c2[i], container2, anchor);
+          patch(null, c2[i] = normalizeVNode(c2[i]), container2, anchor);
           i++;
         }
       } else if (i > e2) {
@@ -698,7 +751,7 @@ function createRenderer(options) {
         const newIndexToOldIndexMap = new Array(e2 - s2 + 1);
         newIndexToOldIndexMap.fill(-1);
         for (let j = s2; j <= e2; j++) {
-          const n2 = c2[j];
+          const n2 = c2[j] = normalizeVNode(c2[j]);
           keyToNewIndexMap.set(n2.key, j);
         }
         let pos = -1;
@@ -754,6 +807,25 @@ function createRenderer(options) {
       patchProps(el, oldProps, newProps);
       patchChildren(n1, n2);
     };
+    const processElement = (n1, n2, container2, anchor = null) => {
+      if (n1 == null) {
+        mountElement(n2, container2, anchor);
+      } else {
+        patchElement(n1, n2);
+      }
+    };
+    const processText = (n1, n2, container2, anchor) => {
+      if (n1 == null) {
+        const el = hostCreateText(n2.children);
+        n2.el = el;
+        hostInsert(el, container2, anchor);
+      } else {
+        n2.el = n1.el;
+        if (n1.children != n2.children) {
+          hostSetText(n2.el, n2.children);
+        }
+      }
+    };
     const patch = (n1, n2, container2, anchor = null) => {
       if (n1 === n2) {
         return;
@@ -761,10 +833,15 @@ function createRenderer(options) {
       if (n1 && !isSameVNodeType(n1, n2)) {
         n1 = null;
       }
-      if (n1 == null) {
-        mountElement(n2, container2, anchor);
-      } else {
-        patchElement(n1, n2);
+      const { shapeFlag, type } = n2;
+      switch (type) {
+        case Text:
+          processText(n1, n2, container2, anchor);
+          break;
+        default:
+          if (shapeFlag & 1 /* ELEMENT */) {
+            processElement(n1, n2, container2, anchor);
+          }
       }
     };
     if (vnode == null) {
@@ -777,7 +854,8 @@ function createRenderer(options) {
     container._vnode = vnode;
   };
   return {
-    render: render2
+    render: render2,
+    createApp: createAppAPI(render2)
   };
 }
 function getSequence(arr) {
@@ -823,30 +901,6 @@ function getSequence(arr) {
     last = map.get(last);
   }
   return result;
-}
-
-// packages/runtime-core/src/h.ts
-function h(type, propsOrChildren, children) {
-  let l = arguments.length;
-  if (l === 2) {
-    if (isArray(propsOrChildren)) {
-      return createVNode(type, null, propsOrChildren);
-    }
-    if (isObject(propsOrChildren)) {
-      if (isVNode(propsOrChildren)) {
-        return createVNode(type, null, [propsOrChildren]);
-      }
-      return createVNode(type, propsOrChildren, children);
-    }
-    return createVNode(type, null, propsOrChildren);
-  } else {
-    if (l > 3) {
-      children = [...arguments].slice(2);
-    } else if (isVNode(children)) {
-      children = [children];
-    }
-    return createVNode(type, propsOrChildren, children);
-  }
 }
 
 // packages/runtime-dom/src/modules/patchClass.ts
@@ -933,11 +987,26 @@ var renderer = createRenderer(renderOptions);
 function render(vnode, container) {
   renderer.render(vnode, container);
 }
+function createApp(rootComponent, rootProps) {
+  const app = renderer.createApp(rootComponent, rootProps);
+  const _mount = app.mount.bind(app);
+  function mount(selector) {
+    let el = selector;
+    if (isString(selector)) {
+      el = document.querySelector(selector);
+    }
+    _mount(el);
+  }
+  app.mount = mount;
+  return app;
+}
 export {
   ReactiveEffect,
   ReactiveFlags,
+  Text2 as Text,
   activeSub,
   computed,
+  createApp,
   createReactiveObject,
   createRenderer,
   createVNode,
@@ -947,6 +1016,7 @@ export {
   isRef,
   isSameVNodeType,
   isVNode,
+  normalizeVNode,
   proxyRefs,
   reactive,
   ref,
