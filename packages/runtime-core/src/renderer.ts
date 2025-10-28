@@ -2,7 +2,6 @@ import { ShapeFlags } from '@vue/shared'
 import { isSameVNodeType } from './vnode'
 export function createRenderer(options) {
   // 提供虚拟节点 渲染到页面上的功能
-  console.log(options)
   const {
     createElement: hostCreateElement,
     setElementText: hostSetElementText,
@@ -44,7 +43,7 @@ export function createRenderer(options) {
     }
 
     // 挂载节点
-    const mountElement = (vnode, container) => {
+    const mountElement = (vnode, container, anchor) => {
       /**
        * 1. 创建一个 dom 节点
        * 2. 设置它的 props
@@ -70,7 +69,7 @@ export function createRenderer(options) {
         mountChildren(children, el)
       }
       // 把 el 插入到 container 中
-      hostInsert(el, container)
+      hostInsert(el, container, anchor)
     }
 
     const patchChildren = (n1, n2) => {
@@ -120,7 +119,8 @@ export function createRenderer(options) {
           if (prevShapeFlag & ShapeFlags.ARRAY_CHILDREN) {
             // 老的是数组
             if (shapeFlag & ShapeFlags.ARRAY_CHILDREN) {
-              // todo 全量diff
+              // 全量diff
+              patchKeyedChildren(n1.children, n2.children, el)
             } else {
               // 新的是null
               // 卸载老的数组
@@ -137,6 +137,215 @@ export function createRenderer(options) {
         }
       }
     }
+    const patchKeyedChildren = (c1, c2, container) => {
+      /**
+       * 全量 diff
+       *
+       * 1. 双端 diff
+       *
+       * 1.1 头部对比
+       * c1 => [a, b]
+       * c2 => [a, b, c, d]
+       *
+       * 开始时：i = 0, e1 = 1, e2 = 3
+       * 结束时：i = 2, e1 = 1, e2 = 3
+       *
+       * 1.2 尾部对比
+       * c1 => [a, b]
+       * c2 => [c, d, a, b]
+       * 开始时：i = 0, e1 = 1, e2 = 3
+       * 结束时：i = 0，e1 = -1, e2 = 1
+       *
+       * 根据双端对比，得出结论：
+       * i > e1 表示老的少，新的多，要挂载新的，挂载的范围是 i - e2
+       * i > e2 的情况下，表示老的多，新的少，要把老的里面多余的卸载掉，卸载的范围是 i - e1
+       *
+       * 2. 乱序
+       * c1 => [a, (b, c, d), e]
+       * c2 => [a, (c, d, b), e]
+       * 开始时：i = 0, e1 = 4, e2 = 4
+       * 双端对比完结果：i = 1, e1 = 3, e2 = 3
+       *
+       */
+
+      let i = 0
+
+      let e1 = c1.length - 1
+
+      let e2 = c2.length - 1
+
+      /**
+       * 1.1 头部对比
+       * c1 => [a, b]
+       * c2 => [a, b, c]
+       *
+       * 开始时：i = 0, e1 = 1, e2 = 2
+       * 结束时：i = 2, e1 = 1, e2 = 2
+       *
+       */
+
+      while (i <= e1 && i <= e2) {
+        const n1 = c1[i]
+        const n2 = c2[i]
+        if (isSameVNodeType(n1, n2)) {
+          // 如果是同一个节点，就进行更新
+          patch(n1, n2, container)
+        } else {
+          // 如果不是同一个节点，就进行替换
+          break
+        }
+        i++
+      }
+
+      /**
+       *
+       * 1.2 尾部对比
+       *
+       * c1 => [a, b]
+       * c2 => [c, d, a, b]
+       * 开始时：i = 0, e1 = 1, e2 = 3
+       * 结束时：i = 0，e1 = -1, e2 = 1
+       */
+
+      while (i <= e1 && i <= e2) {
+        const n1 = c1[e1]
+        const n2 = c2[e2]
+        if (isSameVNodeType(n1, n2)) {
+          // 如果是同一个节点，就进行更新
+          patch(n1, n2, container)
+        } else {
+          // 如果不是同一个节点，就进行替换
+          break
+        }
+        e1--
+        e2--
+      }
+
+      if (i > e1) {
+        /**
+         * 根据双端对比，得出结论：
+         * i > e1 表示老的少，新的多，要挂载新的，挂载的范围是 i - e2
+         */
+        const nextPos = e2 + 1
+        // 由于挂载不一定是追加到父元素的最后面，所以此处需要获取到 anchor，插入到某个元素之前
+        const anchor = nextPos < c2.length ? c2[nextPos].el : null
+        console.log(anchor)
+        while (i <= e2) {
+          patch(null, c2[i], container, anchor)
+          i++
+        }
+      } else if (i > e2) {
+        /**
+         * 根据双端对比，得出结果：
+         * i > e2 的情况下，表示老的多，新的少，要把老的里面多余的卸载掉，卸载的范围是 i - e1
+         */
+        while (i <= e1) {
+          unmount(c1[i])
+          i++
+        }
+      } else {
+        /**
+         * 2. 乱序
+         * c1 => [a, (b, c, d), e]
+         * c2 => [a, (c, d, b), e]
+         * 开始时：i = 0, e1 = 4, e2 = 4
+         * 双端对比完结果：i = 1, e1 = 3, e2 = 3
+         *
+         * 找到 key 相同的 虚拟节点，让它们 patch 一下
+         */
+
+        // 老的子节点开始查找的位置 s1 - e1
+        let s1 = i
+        // 新的子节点开始查找的位置 s2 - e2
+        let s2 = i
+
+        /**
+         * 做一份新的子节点的key和index之间的映射关系
+         * map = {
+         *   c:1,
+         *   d:2,
+         *   b:3
+         * }
+         */
+
+        const keyToNewIndexMap = new Map()
+
+        const newIndexToOldIndexMap = new Array(e2 - s2 + 1)
+        // -1 代表不需要计算的
+        newIndexToOldIndexMap.fill(-1)
+
+        /**
+         * 遍历新的 s2 - e2 之间，这些是还没更新的，做一份 key => index map
+         */
+        for (let j = s2; j <= e2; j++) {
+          const n2 = c2[j]
+          keyToNewIndexMap.set(n2.key, j)
+        }
+
+        /**
+         * 省略部分乱序 diff
+         */
+        // 表示新的子节点在老的子节点中本身就是连续递增的
+        let pos = -1
+        // 是否需要移动
+        let moved = false
+
+        /**
+         * 遍历老的子节点
+         */
+        for (let j = s1; j <= e1; j++) {
+          const n1 = c1[j]
+          // 看一下这个key在新的里面有没有
+          const newIndex = keyToNewIndexMap.get(n1.key)
+          if (newIndex != null) {
+            if (newIndex > pos) {
+              // 💡 如果每一次都是比上一次的大，表示就是连续递增的，不需要算
+              pos = newIndex
+            } else {
+              // 💡 如果突然有一天比上一次的小了，表示需要移动了
+              moved = true
+            }
+            newIndexToOldIndexMap[newIndex] = j
+            // 如果有，就怕patch
+            patch(n1, c2[newIndex], container)
+          } else {
+            // 如果没有，表示老的有，新的没有，需要卸载
+            unmount(n1)
+          }
+        }
+        // 💡 如果 moved 为 false，表示不需要移动，就别算了
+        const newIndexSequence = moved ? getSequence(newIndexToOldIndexMap) : []
+        // 换成 Set 性能好一点
+        const sequenceSet = new Set(newIndexSequence)
+
+        /**
+         * 1. 遍历新的子元素，调整顺序，倒序插入
+         * 2. 新的有，老的没有的，我们需要重新挂载
+         */
+        for (let j = e2; j >= s2; j--) {
+          /**
+           * 倒序插入
+           */
+          const n2 = c2[j]
+          // 拿到它的下一个子元素
+          const anchor = c2[j + 1]?.el || null
+          if (n2.el) {
+            if (moved) {
+              // 💡 如果需要移动，再进去
+              // 如果 j 不在最长递增子序列中，表示需要移动
+              if (!sequenceSet.has(j)) {
+                // 依次进行倒序插入，保证顺序的一致性
+                hostInsert(n2.el, container, anchor)
+              }
+            }
+          } else {
+            // 新的有，老的没有，重新挂载
+            patch(null, n2, container, anchor)
+          }
+        }
+      }
+    }
+
 
     const patchProps = (el, oldProps, newProps) => {
       /**
@@ -178,11 +387,12 @@ export function createRenderer(options) {
 
     /**
      * 更新和挂载，都用这个函数
-     * @param n1 老节点，之前的，如果有，表示要个 n2 做 diff，更新，如果没有，表示直接挂载 n2
+     * @param n1 老节点，之前的，如果有，表示要和 n2 做 diff，更新，如果没有，表示直接挂载 n2
      * @param n2 新节点
      * @param container 要挂载的容器
+     * @param anchor 锚点
      */
-    const patch = (n1, n2, container) => {
+    const patch = (n1, n2, container, anchor = null) => {
       if (n1 === n2) {
         // 如果两次传递了同一个虚拟节点，啥都不干
         return
@@ -195,7 +405,7 @@ export function createRenderer(options) {
 
       if (n1 == null) {
         // 挂载元素
-        mountElement(n2, container)
+        mountElement(n2, container, anchor)
       } else {
         // 更新元素
         patchElement(n1, n2)
@@ -224,4 +434,74 @@ export function createRenderer(options) {
   return {
     render,
   }
+}
+
+/**
+ * 求最长递增子序列
+ */
+function getSequence(arr) {
+  const result = []
+  // 记录前驱节点
+  const map = new Map()
+
+  for (let i = 0; i < arr.length; i++) {
+    const item = arr[i]
+    // -1 不在计算范围内
+    if (item === -1 || item === undefined) continue
+
+    if (result.length === 0) {
+      // 如果 result 里面一个都没有，把当前的索引放进去
+      result.push(i)
+      continue
+    }
+
+    const lastIndex = result[result.length - 1]
+    const lastItem = arr[lastIndex]
+
+    if (item > lastItem) {
+      // 如果当前这一项大于上一个，那么就直接把索引放到 result 中
+      result.push(i)
+      // 记录前驱节点
+      map.set(i, lastIndex)
+      continue
+    }
+    // item 小于 lastItem
+
+    let left = 0
+    let right = result.length - 1
+
+    while (left < right) {
+      const mid = Math.floor((left + right) / 2)
+      // 拿到中间项
+      const midItem = arr[result[mid]]
+      if (midItem < item) {
+        left = mid + 1
+      } else {
+        right = mid
+      }
+    }
+
+    if (arr[result[left]] > item) {
+      if (left > 0) {
+        // 记录前驱节点
+        map.set(i, result[left - 1])
+      }
+      // 找到最合适的，把索引替换进去
+      result[left] = i
+    }
+  }
+
+  // 反向追溯
+  let l = result.length
+  let last = result[l - 1]
+
+  while (l > 0) {
+    l--
+    // 纠正顺序
+    result[l] = last
+    // 去前驱节点里面找
+    last = map.get(last)
+  }
+
+  return result
 }

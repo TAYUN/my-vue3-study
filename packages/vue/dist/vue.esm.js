@@ -221,6 +221,9 @@ function hasChange(newValue, oldValue) {
 function isFunction(value) {
   return typeof value === "function";
 }
+function isString(value) {
+  return typeof value === "string";
+}
 var isArray = Array.isArray;
 
 // packages/reactivity/src/dep.ts
@@ -545,22 +548,23 @@ function traverse(value, depth = Infinity, seen = /* @__PURE__ */ new Set()) {
   return value;
 }
 
-// packages/runtime-core/src/renderer.ts
-function createRenderer(options) {
-  console.log(options);
-  const render2 = (vnode, container) => {
-    console.log("vnode:", vnode, "container:", container);
-  };
-  return {
-    render: render2
-  };
-}
-
 // packages/runtime-core/src/vnode.ts
 function isVNode(value) {
   return value?.__v_isVNode;
 }
+function isSameVNodeType(n1, n2) {
+  return n1.type === n2.type && n1.key === n2.key;
+}
 function createVNode(type, props, children) {
+  let shapeFlag = 0;
+  if (isString(type)) {
+    shapeFlag = 1 /* ELEMENT */;
+  }
+  if (isString(children)) {
+    shapeFlag = 8 /* TEXT_CHILDREN */;
+  } else if (isArray(children)) {
+    shapeFlag = 16 /* ARRAY_CHILDREN */;
+  }
   const vnode = {
     __v_isVNode: true,
     type,
@@ -568,9 +572,257 @@ function createVNode(type, props, children) {
     children,
     key: props?.key,
     el: null,
-    shapeFlag: 9
+    shapeFlag
   };
   return vnode;
+}
+
+// packages/runtime-core/src/renderer.ts
+function createRenderer(options) {
+  const {
+    createElement: hostCreateElement,
+    setElementText: hostSetElementText,
+    insert: hostInsert,
+    remove: hostRemove,
+    patchProp: hostPatchProp
+  } = options;
+  const render2 = (vnode, container) => {
+    const unmountChildren = (children) => {
+      for (let i = 0; i < children.length; i++) {
+        unmount(children[i]);
+      }
+    };
+    const unmount = (vnode2) => {
+      const { type, shapeFlag, children } = vnode2;
+      if (shapeFlag & 16 /* ARRAY_CHILDREN */) {
+        unmountChildren(children);
+      }
+      hostRemove(vnode2.el);
+    };
+    const mountChildren = (children, el) => {
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        patch(null, child, el);
+      }
+    };
+    const mountElement = (vnode2, container2, anchor) => {
+      const { type, props, children, shapeFlag } = vnode2;
+      const el = hostCreateElement(type);
+      vnode2.el = el;
+      if (props) {
+        for (const key in props) {
+          hostPatchProp(el, key, null, props[key]);
+        }
+      }
+      if (shapeFlag & 8 /* TEXT_CHILDREN */) {
+        hostSetElementText(el, children);
+      } else if (shapeFlag & 16 /* ARRAY_CHILDREN */) {
+        mountChildren(children, el);
+      }
+      hostInsert(el, container2, anchor);
+    };
+    const patchChildren = (n1, n2) => {
+      const el = n2.el;
+      const prevShapeFlag = n1.shapeFlag;
+      const shapeFlag = n2.shapeFlag;
+      if (shapeFlag & 8 /* TEXT_CHILDREN */) {
+        if (prevShapeFlag & 16 /* ARRAY_CHILDREN */) {
+          unmountChildren(n1.children);
+        }
+        if (n1.children !== n2.children) {
+          hostSetElementText(el, n2.children);
+        }
+      } else {
+        if (prevShapeFlag & 8 /* TEXT_CHILDREN */) {
+          hostSetElementText(el, "");
+          if (shapeFlag & 16 /* ARRAY_CHILDREN */) {
+            mountChildren(n2.children, el);
+          }
+        } else {
+          if (prevShapeFlag & 16 /* ARRAY_CHILDREN */) {
+            if (shapeFlag & 16 /* ARRAY_CHILDREN */) {
+              patchKeyedChildren(n1.children, n2.children, el);
+            } else {
+              unmountChildren(n1.children);
+            }
+          } else {
+            if (shapeFlag & 16 /* ARRAY_CHILDREN */) {
+              mountChildren(n2.children, el);
+            }
+          }
+        }
+      }
+    };
+    const patchKeyedChildren = (c1, c2, container2) => {
+      let i = 0;
+      let e1 = c1.length - 1;
+      let e2 = c2.length - 1;
+      while (i <= e1 && i <= e2) {
+        const n1 = c1[i];
+        const n2 = c2[i];
+        if (isSameVNodeType(n1, n2)) {
+          patch(n1, n2, container2);
+        } else {
+          break;
+        }
+        i++;
+      }
+      while (i <= e1 && i <= e2) {
+        const n1 = c1[e1];
+        const n2 = c2[e2];
+        if (isSameVNodeType(n1, n2)) {
+          patch(n1, n2, container2);
+        } else {
+          break;
+        }
+        e1--;
+        e2--;
+      }
+      if (i > e1) {
+        const nextPos = e2 + 1;
+        const anchor = nextPos < c2.length ? c2[nextPos].el : null;
+        console.log(anchor);
+        while (i <= e2) {
+          patch(null, c2[i], container2, anchor);
+          i++;
+        }
+      } else if (i > e2) {
+        while (i <= e1) {
+          unmount(c1[i]);
+          i++;
+        }
+      } else {
+        let s1 = i;
+        let s2 = i;
+        const keyToNewIndexMap = /* @__PURE__ */ new Map();
+        const newIndexToOldIndexMap = new Array(e2 - s2 + 1);
+        newIndexToOldIndexMap.fill(-1);
+        for (let j = s2; j <= e2; j++) {
+          const n2 = c2[j];
+          keyToNewIndexMap.set(n2.key, j);
+        }
+        let pos = -1;
+        let moved = false;
+        for (let j = s1; j <= e1; j++) {
+          const n1 = c1[j];
+          const newIndex = keyToNewIndexMap.get(n1.key);
+          if (newIndex != null) {
+            if (newIndex > pos) {
+              pos = newIndex;
+            } else {
+              moved = true;
+            }
+            newIndexToOldIndexMap[newIndex] = j;
+            patch(n1, c2[newIndex], container2);
+          } else {
+            unmount(n1);
+          }
+        }
+        const newIndexSequence = moved ? getSequence(newIndexToOldIndexMap) : [];
+        const sequenceSet = new Set(newIndexSequence);
+        for (let j = e2; j >= s2; j--) {
+          const n2 = c2[j];
+          const anchor = c2[j + 1]?.el || null;
+          if (n2.el) {
+            if (moved) {
+              if (!sequenceSet.has(j)) {
+                hostInsert(n2.el, container2, anchor);
+              }
+            }
+          } else {
+            patch(null, n2, container2, anchor);
+          }
+        }
+      }
+    };
+    const patchProps = (el, oldProps, newProps) => {
+      if (oldProps) {
+        for (const key in oldProps) {
+          hostPatchProp(el, key, oldProps[key], null);
+        }
+      }
+      if (newProps) {
+        for (const key in newProps) {
+          hostPatchProp(el, key, oldProps?.[key], newProps[key]);
+        }
+      }
+    };
+    const patchElement = (n1, n2) => {
+      const el = n2.el = n1.el;
+      const oldProps = n1.props;
+      const newProps = n2.props;
+      patchProps(el, oldProps, newProps);
+      patchChildren(n1, n2);
+    };
+    const patch = (n1, n2, container2, anchor = null) => {
+      if (n1 === n2) {
+        return;
+      }
+      if (n1 && !isSameVNodeType(n1, n2)) {
+        n1 = null;
+      }
+      if (n1 == null) {
+        mountElement(n2, container2, anchor);
+      } else {
+        patchElement(n1, n2);
+      }
+    };
+    if (vnode == null) {
+      if (container._vnode) {
+        unmount(container._vnode);
+      }
+    } else {
+      patch(container._vnode || null, vnode, container);
+    }
+    container._vnode = vnode;
+  };
+  return {
+    render: render2
+  };
+}
+function getSequence(arr) {
+  const result = [];
+  const map = /* @__PURE__ */ new Map();
+  for (let i = 0; i < arr.length; i++) {
+    const item = arr[i];
+    if (item === -1 || item === void 0) continue;
+    if (result.length === 0) {
+      result.push(i);
+      continue;
+    }
+    const lastIndex = result[result.length - 1];
+    const lastItem = arr[lastIndex];
+    if (item > lastItem) {
+      result.push(i);
+      map.set(i, lastIndex);
+      continue;
+    }
+    let left = 0;
+    let right = result.length - 1;
+    while (left < right) {
+      const mid = Math.floor((left + right) / 2);
+      const midItem = arr[result[mid]];
+      if (midItem < item) {
+        left = mid + 1;
+      } else {
+        right = mid;
+      }
+    }
+    if (arr[result[left]] > item) {
+      if (left > 0) {
+        map.set(i, result[left - 1]);
+      }
+      result[left] = i;
+    }
+  }
+  let l = result.length;
+  let last = result[l - 1];
+  while (l > 0) {
+    l--;
+    result[l] = last;
+    last = map.get(last);
+  }
+  return result;
 }
 
 // packages/runtime-core/src/h.ts
@@ -693,6 +945,7 @@ export {
   h,
   isReactive,
   isRef,
+  isSameVNodeType,
   isVNode,
   proxyRefs,
   reactive,
