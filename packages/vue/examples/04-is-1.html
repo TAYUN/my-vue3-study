@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Title</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      // import {
+      //   // h,
+      //   render,
+      // } from '../../../node_modules/vue/dist/vue.esm-browser.js'
+      import { h, render } from '../dist/vue.esm.js'
+
+      const vnode1 = h('div', [
+        h('p', { key: 'a', style: { color: 'blue' } }, 'a'),
+        h('p', { key: 'b', style: { color: 'blue' } }, 'b'),
+        h('p', { key: 'c', style: { color: 'blue' } }, 'c'),
+        h('p', { key: 'd', style: { color: 'blue' } }, 'd'),
+        h('p', { key: 'e', style: { color: 'blue' } }, 'e'),
+      ])
+
+      const vnode2 = h('div', [
+        h('p', { key: 'a', style: { color: 'red' } }, 'a'),
+        h('p', { key: 'c', style: { color: 'red' } }, 'c'),
+        h('p', { key: 'g', style: { color: 'red' } }, 'g'),
+        h('p', { key: 'd', style: { color: 'red' } }, 'd'),
+        h('p', { key: 'b', style: { color: 'red' } }, 'b'),
+        h('p', { key: 'e', style: { color: 'red' } }, 'e'),
+      ])
+
+      render(vnode1, app)
+
+      setTimeout(() => {
+        render(vnode2, app)
+      }, 1000)
+    </script>
+  </body>
+</html>
