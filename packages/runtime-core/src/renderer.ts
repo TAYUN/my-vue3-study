@@ -1,12 +1,15 @@
 import { ShapeFlags } from '@vue/shared'
-import { isSameVNodeType } from './vnode'
+import { isSameVNodeType, normalizeVNode } from './vnode'
+import { createAppAPI } from './apiCreateApp'
 export function createRenderer(options) {
   // 提供虚拟节点 渲染到页面上的功能
   const {
     createElement: hostCreateElement,
     setElementText: hostSetElementText,
     insert: hostInsert,
+    setText: hostSetText,
     remove: hostRemove,
+    createText: hostCreateText,
     patchProp: hostPatchProp,
   } = options
   // renderer.ts
@@ -36,7 +39,7 @@ export function createRenderer(options) {
 
     const mountChildren = (children, el) => {
       for (let i = 0; i < children.length; i++) {
-        const child = children[i]
+        const child = (children[i] = normalizeVNode(children[i]))
         // 递归挂载子节点
         patch(null, child, el)
       }
@@ -186,7 +189,7 @@ export function createRenderer(options) {
 
       while (i <= e1 && i <= e2) {
         const n1 = c1[i]
-        const n2 = c2[i]
+        const n2 = (c2[i] = normalizeVNode(c2[i]))
         if (isSameVNodeType(n1, n2)) {
           // 如果是同一个节点，就进行更新
           patch(n1, n2, container)
@@ -209,7 +212,7 @@ export function createRenderer(options) {
 
       while (i <= e1 && i <= e2) {
         const n1 = c1[e1]
-        const n2 = c2[e2]
+        const n2 = (c2[e2] = normalizeVNode(c2[e2]))
         if (isSameVNodeType(n1, n2)) {
           // 如果是同一个节点，就进行更新
           patch(n1, n2, container)
@@ -229,9 +232,8 @@ export function createRenderer(options) {
         const nextPos = e2 + 1
         // 由于挂载不一定是追加到父元素的最后面，所以此处需要获取到 anchor，插入到某个元素之前
         const anchor = nextPos < c2.length ? c2[nextPos].el : null
-        console.log(anchor)
         while (i <= e2) {
-          patch(null, c2[i], container, anchor)
+          patch(null, (c2[i] = normalizeVNode(c2[i])), container, anchor)
           i++
         }
       } else if (i > e2) {
@@ -278,7 +280,7 @@ export function createRenderer(options) {
          * 遍历新的 s2 - e2 之间，这些是还没更新的，做一份 key => index map
          */
         for (let j = s2; j <= e2; j++) {
-          const n2 = c2[j]
+          const n2 = c2[j] = normalizeVNode(c2[j])
           keyToNewIndexMap.set(n2.key, j)
         }
 
@@ -306,7 +308,7 @@ export function createRenderer(options) {
               moved = true
             }
             newIndexToOldIndexMap[newIndex] = j
-            // 如果有，就怕patch
+            // 如果有，就patch
             patch(n1, c2[newIndex], container)
           } else {
             // 如果没有，表示老的有，新的没有，需要卸载
@@ -346,7 +348,6 @@ export function createRenderer(options) {
       }
     }
 
-
     const patchProps = (el, oldProps, newProps) => {
       /**
        * 1. 把老的 props 全删掉
@@ -385,6 +386,38 @@ export function createRenderer(options) {
       patchChildren(n1, n2)
     }
 
+    const processElement = (n1, n2, container, anchor = null) => {
+      if (n1 == null) {
+        // 挂载
+        mountElement(n2, container, anchor)
+      } else {
+        // 更新
+        patchElement(n1, n2)
+      }
+    }
+
+    /**
+     * 处理文本的挂载和更新
+     */
+    const processText = (n1, n2, container, anchor) => {
+      if (n1 == null) {
+        // 挂载
+        const el = hostCreateText(n2.children)
+        // 给 vnode 绑定 el
+        n2.el = el // todo 这个语句有意义吗，好像用不到
+        // 把文本节点插入到 container 中
+        hostInsert(el, container, anchor)
+      } else {
+        // 更新
+        // 复用节点
+        n2.el = n1.el
+        if (n1.children != n2.children) {
+          // 如果文本内容变了，就更新
+          hostSetText(n2.el, n2.children)
+        }
+      }
+    }
+
     /**
      * 更新和挂载，都用这个函数
      * @param n1 老节点，之前的，如果有，表示要和 n2 做 diff，更新，如果没有，表示直接挂载 n2
@@ -403,12 +436,16 @@ export function createRenderer(options) {
         n1 = null
       }
 
-      if (n1 == null) {
-        // 挂载元素
-        mountElement(n2, container, anchor)
-      } else {
-        // 更新元素
-        patchElement(n1, n2)
+      const { shapeFlag, type } = n2
+
+      switch (type) {
+        case Text:
+          processText(n1, n2, container, anchor)
+          break
+        default:
+          if (shapeFlag & ShapeFlags.ELEMENT) {
+            processElement(n1, n2, container, anchor)
+          }
       }
     }
 
@@ -433,6 +470,7 @@ export function createRenderer(options) {
   }
   return {
     render,
+    createApp: createAppAPI(render)
   }
 }
 

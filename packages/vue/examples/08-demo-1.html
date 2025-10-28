@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Title</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      // import {
+      //   h,
+      //   Text,
+      //   render,
+      // } from '../../../node_modules/vue/dist/vue.esm-browser.js'
+      import { h, ref, createApp } from '../dist/vue.esm.js'
+      const Comp = {
+        render() {
+          return h('div', this.count)
+        },
+      }
+
+      createApp(Comp, {msg: 'hello word'}).mount('#app')
+    </script>
+  </body>
+</html>
